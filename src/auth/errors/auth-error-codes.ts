@@ -1,0 +1,4 @@
+export enum AuthErrorCode {
+  EMAIL_EXISTS = "EMAIL_EXISTS",
+  INVALID_CREDENTIALS = "INVALID_CREDENTIALS",
+}
