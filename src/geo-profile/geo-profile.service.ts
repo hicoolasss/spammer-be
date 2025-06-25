@@ -26,7 +26,7 @@ export class GeoProfileService {
       name: dto.name,
       geo: dto.geo,
       createdBy: userId,
-      createdAt: new Date(),
+      createdAt: new Date(),  
     });
 
     const profileId = profile._id.toString();
@@ -52,6 +52,9 @@ export class GeoProfileService {
     await pipeline.exec();
 
     profile.leadCount = leadCount;
+    profile.leadKey = leadsKey;
+    profile.fbclidKey = fbclidKey;
+    profile.userAgentKey = uasKey;
     await profile.save();
 
     [files.leadDataPath, files.userAgentsPath, files.fbClidsPath]

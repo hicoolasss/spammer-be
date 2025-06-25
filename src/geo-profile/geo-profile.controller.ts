@@ -25,7 +25,7 @@ export class GeoProfileController {
       [
         { name: 'leadData', maxCount: 1 },
         { name: 'userAgents', maxCount: 1 },
-        { name: 'fbClids', maxCount: 1 },
+        { name: 'fbclids', maxCount: 1 },
       ],
       csvMulterOptions,
     ),
