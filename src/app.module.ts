@@ -20,6 +20,9 @@ import mongoose from "mongoose";
 import { AdminController } from "./admin/admin.controller";
 import { AdminModule } from "./admin/admin.module";
 import { AppController } from "./app.controller";
+import { GeoProfileModule } from './geo-profile/geo-profile.module';
+import { GeoProfileController } from "./geo-profile/geo-profile.controller";
+import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
@@ -46,6 +49,8 @@ import { AppController } from "./app.controller";
     TokenModule,
     UserModule,
     AdminModule,
+    GeoProfileModule,
+    RedisModule,
   ],
   controllers: [AppController],
   providers: [CookieService, TokenService, Logger],
@@ -60,7 +65,7 @@ export class AppModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(RefreshTokenMiddleware, SetUserMiddleware)
-      .forRoutes(UserController, AdminController);
+      .forRoutes(UserController, AdminController, GeoProfileController);
   }
 
   private setupMongooseEventListeners() {
