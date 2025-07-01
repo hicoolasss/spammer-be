@@ -1,9 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { CreateGeoProfileDto } from './dto/create-geo-profile.dto';
-import { GeoProfileResponseDto } from './dto/geo-profile.dto';
+import {
+  GeoProfileListResponseDto,
+  GeoProfileDto,
+} from './dto/geo-profile.dto';
 import { Buffers } from '@interfaces';
-import { Model } from 'mongoose';
-import { GeoProfile } from './geo-profile.schema';
+import { FilterQuery, Model } from 'mongoose';
+import { GeoProfile, GeoProfileDocument } from './geo-profile.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { REDIS_CLIENT } from 'src/redis/redis.module';
 import { RedisClientType } from 'redis';
@@ -21,14 +24,13 @@ export class GeoProfileService {
     dto: CreateGeoProfileDto,
     files: Buffers,
     userId: string,
-  ): Promise<GeoProfileResponseDto> {
+  ): Promise<GeoProfileDto> {
     const profile = await this.profileModel.create({
       name: dto.name,
       geo: dto.geo,
       createdBy: userId,
-      createdAt: new Date(),  
+      createdAt: new Date(),
     });
-
     const profileId = profile._id.toString();
     const leadsKey = `leads:${profileId}`;
     const uasKey = `uas:${profileId}`;
@@ -49,9 +51,21 @@ export class GeoProfileService {
       },
     );
 
+    await this.parseCsvFile(files.userAgentsPath, ['userAgent'], (row) => {
+      pipeline.rPush(uasKey, row.userAgent);
+      uaCount++;
+    });
+
+    await this.parseCsvFile(files.fbClidsPath, ['fbclid'], (row) => {
+      pipeline.rPush(fbclidKey, row.fbclid);
+      fbclidCount++;
+    });
+
     await pipeline.exec();
 
     profile.leadCount = leadCount;
+    profile.useAgentCount = uaCount;
+    profile.fbclidCount = fbclidCount;
     profile.leadKey = leadsKey;
     profile.fbclidKey = fbclidKey;
     profile.userAgentKey = uasKey;
@@ -62,7 +76,7 @@ export class GeoProfileService {
       .forEach((p) => unlink(p, () => {}));
 
     return {
-      id: profileId,
+      _id: profileId,
       name: profile.name,
       geo: profile.geo,
       leadKey: leadsKey,
@@ -76,21 +90,71 @@ export class GeoProfileService {
     };
   }
 
-  async findAllByUser(userId: string): Promise<GeoProfileResponseDto[]> {
-    const profiles = await this.profileModel.find({ createdBy: userId }).lean();
-    return profiles.map((profile) => ({
-      id: profile._id.toString(),
+  async findAllByUser(
+    userId: string,
+    skip = 0,
+    limit = 10,
+    searchQuery?: string,
+    selectedGeo?: string,
+  ): Promise<GeoProfileListResponseDto> {
+    const filter: FilterQuery<GeoProfileDocument> = { createdBy: userId };
+    if (searchQuery) {
+      const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.name = { $regex: escaped, $options: 'i' };
+    }
+    if (selectedGeo) {
+      filter.geo = selectedGeo;
+    }
+
+    const total = await this.profileModel.countDocuments(filter).exec();
+    const profiles = await this.profileModel
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean()
+      .exec();
+
+    const items = profiles.map((profile) => ({
+      _id: profile._id.toString(),
       name: profile.name,
       geo: profile.geo,
-      leadKey: `leads:${profile._id}`,
-      userAgentKey: `uas:${profile._id}`,
-      fbclidKey: `fbcls:${profile._id}`,
+      leadKey: profile.leadKey,
+      userAgentKey: profile.userAgentKey,
+      fbclidKey: profile.fbclidKey,
       createdBy: profile.createdBy,
       createdAt: profile.createdAt,
       leadCount: profile.leadCount || 0,
       userAgentCount: profile.useAgentCount || 0,
       fbclidCount: profile.fbclidCount || 0,
     }));
+
+    return {
+      items,
+      total,
+      hasMore: skip + profiles.length < total,
+    };
+  }
+
+  async deleteGeoProfile(profileId: string) {
+    const profile = await this.profileModel.findById(profileId).exec();
+    if (!profile) {
+      throw new Error(`Profile with ID ${profileId} not found`);
+    }
+
+    const keysToDelete = [
+      profile.leadKey,
+      profile.userAgentKey,
+      profile.fbclidKey,
+    ].filter((k): k is string => typeof k === 'string');
+
+    if (keysToDelete.length) {
+      await Promise.all(keysToDelete.map((key) => this.redisClient.del(key)));
+    }
+
+    await this.profileModel.deleteOne({ _id: profileId }).exec();
+
+    return;
   }
 
   private parseCsvFile(

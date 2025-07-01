@@ -1,5 +1,5 @@
-export class GeoProfileResponseDto {
-  id: string;
+export interface GeoProfileDto {
+  _id: string;
   name: string;
   geo: string;
   leadKey?: string;
@@ -10,4 +10,10 @@ export class GeoProfileResponseDto {
   leadCount: number;
   userAgentCount?: number;
   fbclidCount?: number;
+}
+
+export interface GeoProfileListResponseDto {
+  items: GeoProfileDto[];
+  total: number;
+  hasMore: boolean;
 }
