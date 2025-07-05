@@ -56,6 +56,9 @@ importers:
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
+      csv-parser:
+        specifier: ^3.2.0
+        version: 3.2.0
       dotenv:
         specifier: ^16.5.0
         version: 16.5.0
@@ -77,6 +80,9 @@ importers:
       react:
         specifier: ^19.1.0
         version: 19.1.0
+      redis:
+        specifier: ^5.5.6
+        version: 5.5.6
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -847,6 +853,34 @@ packages:
     peerDependencies:
       react: ^18.0 || ^19.0 || ^19.0.0-rc
 
+  '@redis/bloom@5.5.6':
+    resolution: {integrity: sha512-bNR3mxkwtfuCxNOzfV8B3R5zA1LiN57EH6zK4jVBIgzMzliNuReZXBFGnXvsi80/SYohajn78YdpYI+XNpqL+A==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@redis/client': ^5.5.6
+
+  '@redis/client@5.5.6':
+    resolution: {integrity: sha512-M3Svdwt6oSfyfQdqEr0L2HOJH2vK7GgCFx1NfAQvpWAT4+ljoT1L5S5cKT3dA9NJrxrOPDkdoTPWJnIrGCOcmw==}
+    engines: {node: '>= 18'}
+
+  '@redis/json@5.5.6':
+    resolution: {integrity: sha512-AIsoe3SsGQagqAmSQHaqxEinm5oCWr7zxPWL90kKaEdLJ+zw8KBznf2i9oK0WUFP5pFssSQUXqnscQKe2amfDQ==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@redis/client': ^5.5.6
+
+  '@redis/search@5.5.6':
+    resolution: {integrity: sha512-JSqasYqO0mVcHL7oxvbySRBBZYRYhFl3W7f0Da7BW8M/r0Z9wCiVrdjnN4/mKBpWZkoJT/iuisLUdPGhpKxBew==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@redis/client': ^5.5.6
+
+  '@redis/time-series@5.5.6':
+    resolution: {integrity: sha512-jkpcgq3NOI3TX7xEAJ3JgesJTxAx7k0m6lNxNsYdEM8KOl+xj7GaB/0CbLkoricZDmFSEAz7ClA1iK9XkGHf+Q==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@redis/client': ^5.5.6
+
   '@selderee/plugin-htmlparser2@0.11.0':
     resolution: {integrity: sha512-P33hHGdldxGabLFjPPpaTxVolMrzrcegejx+0GxjrIb9Zv48D8yAIA/QTDR2dFl7Uz7urX8aX6+5bCZslr+gWQ==}
 
@@ -1580,6 +1614,10 @@ packages:
     resolution: {integrity: sha512-JQHZ2QMW6l3aH/j6xCqQThY/9OH4D/9ls34cgkUBiEeocRTU04tHfKPBsUK1PqZCUQM7GiA0IIXJSuXHI64Kbg==}
     engines: {node: '>=0.8'}
 
+  cluster-key-slot@1.1.2:
+    resolution: {integrity: sha512-RMr0FhtfXemyinomL4hrWcYJxmX6deFdCxpJzhDttxgO1+bcCnkk+9drydLVDmAMG7NE6aN/fl4F7ucU/90gAA==}
+    engines: {node: '>=0.10.0'}
+
   co@4.6.0:
     resolution: {integrity: sha512-QVb0dM5HvG+uaxitm8wONl7jltx8dqhfU33DcqtOZcLSVIKSDDLDi7+0LbAKiyI8hD9u42m2YxXSkMGWThaecQ==}
     engines: {iojs: '>= 1.0.0', node: '>= 0.12.0'}
@@ -1684,6 +1722,11 @@ packages:
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
+
+  csv-parser@3.2.0:
+    resolution: {integrity: sha512-fgKbp+AJbn1h2dcAHKIdKNSSjfp43BZZykXsCjzALjKy80VXQNHPFJ6T9Afwdzoj24aMkq8GwDS7KGcDPpejrA==}
+    engines: {node: '>= 10'}
+    hasBin: true
 
   debug@2.6.9:
     resolution: {integrity: sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==}
@@ -3091,6 +3134,10 @@ packages:
   readdirp@3.6.0:
     resolution: {integrity: sha512-hOS089on8RduqdbhvQ5Z37A0ESjsqz6qnRcffsMU3495FuTdqSm+7bhJ29JvIOsBDEEnan5DPu9t3To9VRlMzA==}
     engines: {node: '>=8.10.0'}
+
+  redis@5.5.6:
+    resolution: {integrity: sha512-hbpqBfcuhWHOS9YLNcXcJ4akNr7HFX61Dq3JuFZ9S7uU7C7kvnzuH2PDIXOP62A3eevvACoG8UacuXP3N07xdg==}
+    engines: {node: '>= 18'}
 
   reflect-metadata@0.2.2:
     resolution: {integrity: sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q==}
@@ -4889,6 +4936,26 @@ snapshots:
     dependencies:
       react: 19.1.0
 
+  '@redis/bloom@5.5.6(@redis/client@5.5.6)':
+    dependencies:
+      '@redis/client': 5.5.6
+
+  '@redis/client@5.5.6':
+    dependencies:
+      cluster-key-slot: 1.1.2
+
+  '@redis/json@5.5.6(@redis/client@5.5.6)':
+    dependencies:
+      '@redis/client': 5.5.6
+
+  '@redis/search@5.5.6(@redis/client@5.5.6)':
+    dependencies:
+      '@redis/client': 5.5.6
+
+  '@redis/time-series@5.5.6(@redis/client@5.5.6)':
+    dependencies:
+      '@redis/client': 5.5.6
+
   '@selderee/plugin-htmlparser2@0.11.0':
     dependencies:
       domhandler: 5.0.3
@@ -5905,6 +5972,8 @@ snapshots:
 
   clone@1.0.4: {}
 
+  cluster-key-slot@1.1.2: {}
+
   co@4.6.0: {}
 
   collect-v8-coverage@1.0.2: {}
@@ -6010,6 +6079,8 @@ snapshots:
       path-key: 3.1.1
       shebang-command: 2.0.0
       which: 2.0.2
+
+  csv-parser@3.2.0: {}
 
   debug@2.6.9:
     dependencies:
@@ -7635,6 +7706,14 @@ snapshots:
   readdirp@3.6.0:
     dependencies:
       picomatch: 2.3.1
+
+  redis@5.5.6:
+    dependencies:
+      '@redis/bloom': 5.5.6(@redis/client@5.5.6)
+      '@redis/client': 5.5.6
+      '@redis/json': 5.5.6(@redis/client@5.5.6)
+      '@redis/search': 5.5.6(@redis/client@5.5.6)
+      '@redis/time-series': 5.5.6(@redis/client@5.5.6)
 
   reflect-metadata@0.2.2: {}
 

@@ -37,6 +37,7 @@
       "@user/*": ["src/user/*"],
       "@utils/*": ["src/utils/*"],
       "@validations": ["src/validations/index"],
+      "@geo-profile/*": ["src/geo-profile/*"],
     }
   }
 }
