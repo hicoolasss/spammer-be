@@ -38,6 +38,7 @@
       "@utils/*": ["src/utils/*"],
       "@validations": ["src/validations/index"],
       "@geo-profile/*": ["src/geo-profile/*"],
+      "@task/*": ["src/task/*"],
     }
   }
 }
