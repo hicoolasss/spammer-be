@@ -107,13 +107,16 @@ export class GeoProfileService {
     }
 
     const total = await this.profileModel.countDocuments(filter).exec();
-    const profiles = await this.profileModel
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean()
-      .exec();
+    let query = this.profileModel.find(filter).sort({ createdAt: -1 });
+
+    if (skip > 0) {
+      query = query.skip(skip);
+    }
+    if (limit > 0) {
+      query = query.limit(limit);
+    }
+
+    const profiles = await query.lean().exec();
 
     const items = profiles.map((profile) => ({
       _id: profile._id.toString(),

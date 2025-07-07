@@ -4,3 +4,4 @@ export * from "./email.interfaces";
 export * from "./user.interfaces";
 export * from "./validations.interfaces";
 export * from "./buffer.interfaces";
+export * from "./task.interfaces";
