@@ -21,10 +21,11 @@ import { TokenModule } from '@token/token.module';
 import { TokenService } from '@token/token.service';
 import { UserController } from '@user/user.controller';
 import { UserModule } from '@user/user.module';
-import { LogWrapper } from '@utils/LogWrapper';
+import { LogWrapper } from '@utils';
 import mongoose from 'mongoose';
 
 import { AppController } from './app.controller';
+import { PuppeteerModule } from './puppeteer/puppeteer.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { AppController } from './app.controller';
     UserModule,
     AdminModule,
     GeoProfileModule,
+    PuppeteerModule,
     RedisModule,
     TaskModule,
   ],

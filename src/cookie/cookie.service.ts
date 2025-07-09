@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { IS_PROD_ENV } from '@utils/env.enums';
+import { IS_PROD_ENV } from '@utils';
 import { Response } from 'express';
 
 @Injectable()

@@ -1,6 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { LogWrapper } from '@utils/LogWrapper';
+import { LogWrapper } from '@utils';
 import { createClient, RedisClientType } from 'redis';
 
 export const REDIS_CLIENT = 'REDIS_CLIENT';

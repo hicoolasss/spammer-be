@@ -4,7 +4,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
-import { LogWrapper } from '@utils/LogWrapper';
+import { LogWrapper } from '@utils';
 
 @Injectable()
 export class IsAccountOwnerGuard implements CanActivate {

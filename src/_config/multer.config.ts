@@ -1,4 +1,4 @@
-import { LogWrapper } from '@utils/LogWrapper';
+import { LogWrapper } from '@utils';
 import * as fs from 'fs';
 import * as multer from 'multer';
 import * as path from 'path';

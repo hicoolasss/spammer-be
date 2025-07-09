@@ -36,8 +36,9 @@
       "@redis/*": ["src/redis/*"],
       "@task/*": ["src/task/*"],
       "@token/*": ["src/token/*"],
+      "@types": ["src/types/index"],
       "@user/*": ["src/user/*"],
-      "@utils/*": ["src/utils/*"],
+      "@utils": ["src/utils/index"]
     }
   }
 }
