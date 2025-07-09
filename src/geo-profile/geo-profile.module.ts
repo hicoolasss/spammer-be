@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 
-import { GeoProfileController } from './geo-profile.controller';
-import { GeoProfileService } from './geo-profile.service';
-import { GeoProfileSchema, GeoProfile } from './geo-profile.schema';
 import { RedisModule } from '../redis/redis.module';
+import { GeoProfileController } from './geo-profile.controller';
+import { GeoProfile, GeoProfileSchema } from './geo-profile.schema';
+import { GeoProfileService } from './geo-profile.service';
 
 @Module({
   imports: [

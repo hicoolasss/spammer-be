@@ -1,4 +1,11 @@
+import { csvMulterOptions } from '@_config/multer.config';
 import { CurrentUser } from '@_decorators';
+import { CreateGeoProfileDto } from '@geo-profile/dto/create-geo-profile.dto';
+import {
+  GeoProfileDto,
+  GeoProfileListResponseDto,
+} from '@geo-profile/dto/geo-profile.dto';
+import { GeoProfileService } from '@geo-profile/geo-profile.service';
 import {
   Body,
   Controller,
@@ -9,19 +16,11 @@ import {
   ParseIntPipe,
   Post,
   Query,
-  Req,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
-import { UserDto } from '@user/dto/user.dto';
-import { CreateGeoProfileDto } from '@geo-profile/dto/create-geo-profile.dto';
-import { GeoProfileService } from '@geo-profile/geo-profile.service';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
-import { csvMulterOptions } from '@_config/multer.config';
-import {
-  GeoProfileListResponseDto,
-  GeoProfileDto,
-} from '@geo-profile/dto/geo-profile.dto';
+import { UserDto } from '@user/dto/user.dto';
 
 @Controller('geo-profile')
 export class GeoProfileController {
@@ -95,9 +94,7 @@ export class GeoProfileController {
   }
 
   @Delete(':profileId')
-  async delete(
-    @Param('profileId') profileId: string,
-  ): Promise<void> {
+  async delete(@Param('profileId') profileId: string): Promise<void> {
     return this.geoProfileService.deleteGeoProfile(profileId);
   }
 }

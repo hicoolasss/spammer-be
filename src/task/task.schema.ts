@@ -1,9 +1,8 @@
+import { TaskStatus } from '@enums';
+import { GeoProfile } from '@geo-profile/geo-profile.schema';
+import { TaskResult } from '@interfaces';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { TaskStatus } from '@enums';
-import { TaskResult } from '@interfaces';
-import { GeoProfile } from '@geo-profile/geo-profile.schema';
-import { Matches } from 'class-validator';
 
 export type TaskDocument = Task & Document;
 

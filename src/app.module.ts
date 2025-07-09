@@ -1,30 +1,30 @@
-import { jwtConfig } from "@_config/jwt.config";
-import { RefreshTokenMiddleware, SetUserMiddleware } from "@_middlewares";
-import { AIModule } from "@ai/ai.module";
-import { AuthModule } from "@auth/auth.module";
-import { CookieModule } from "@cookie/cookie.module";
-import { CookieService } from "@cookie/cookie.service";
-import { EmailModule } from "@email/email.module";
-import { Logger, MiddlewareConsumer, Module } from "@nestjs/common";
-import { ConfigModule, ConfigService } from "@nestjs/config";
-import { JwtModule } from "@nestjs/jwt";
-import { MongooseModule } from "@nestjs/mongoose";
-import { ScheduleModule } from "@nestjs/schedule";
-import { TokenModule } from "@token/token.module";
-import { TokenService } from "@token/token.service";
-import { UserController } from "@user/user.controller";
-import { UserModule } from "@user/user.module";
-import { LogWrapper } from "@utils/LogWrapper";
-import mongoose from "mongoose";
+import { jwtConfig } from '@_config/jwt.config';
+import { RefreshTokenMiddleware, SetUserMiddleware } from '@_middlewares';
+import { AIModule } from '@ai/ai.module';
+import { AuthModule } from '@auth/auth.module';
+import { CookieModule } from '@cookie/cookie.module';
+import { CookieService } from '@cookie/cookie.service';
+import { EmailModule } from '@email/email.module';
+import { Logger, MiddlewareConsumer, Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
+import { MongooseModule } from '@nestjs/mongoose';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TaskController } from '@task/task.controller';
+import { TokenModule } from '@token/token.module';
+import { TokenService } from '@token/token.service';
+import { UserController } from '@user/user.controller';
+import { UserModule } from '@user/user.module';
+import { LogWrapper } from '@utils/LogWrapper';
+import mongoose from 'mongoose';
 
-import { AdminController } from "./admin/admin.controller";
-import { AdminModule } from "./admin/admin.module";
-import { AppController } from "./app.controller";
+import { AdminController } from './admin/admin.controller';
+import { AdminModule } from './admin/admin.module';
+import { AppController } from './app.controller';
+import { GeoProfileController } from './geo-profile/geo-profile.controller';
 import { GeoProfileModule } from './geo-profile/geo-profile.module';
-import { GeoProfileController } from "./geo-profile/geo-profile.controller";
 import { RedisModule } from './redis/redis.module';
 import { TaskModule } from './task/task.module';
-import { TaskController } from "@task/task.controller";
 
 @Module({
   imports: [
@@ -35,7 +35,7 @@ import { TaskController } from "@task/task.controller";
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        uri: configService.get<string>("MONGO_URL"),
+        uri: configService.get<string>('MONGO_URL'),
         connectTimeoutMS: 10000,
         socketTimeoutMS: 45000,
         serverSelectionTimeoutMS: 5000,
@@ -68,28 +68,33 @@ export class AppModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(RefreshTokenMiddleware, SetUserMiddleware)
-      .forRoutes(UserController, AdminController, GeoProfileController, TaskController);
+      .forRoutes(
+        UserController,
+        AdminController,
+        GeoProfileController,
+        TaskController,
+      );
   }
 
   private setupMongooseEventListeners() {
     const connection = mongoose.connection;
 
-    connection.on("connected", async () => {
-      await this.logger.info("Database connection established.");
+    connection.on('connected', async () => {
+      await this.logger.info('Database connection established.');
     });
 
-    connection.on("disconnected", async () => {
+    connection.on('disconnected', async () => {
       await this.logger.warn(
-        "Database connection lost. Attempting to reconnect..."
+        'Database connection lost. Attempting to reconnect...',
       );
     });
 
-    connection.on("reconnected", async () => {
-      await this.logger.info("Reconnected to the database.");
+    connection.on('reconnected', async () => {
+      await this.logger.info('Reconnected to the database.');
     });
 
-    connection.on("error", async (err) => {
-      await this.logger.error("Database connection error:", err);
+    connection.on('error', async (err) => {
+      await this.logger.error('Database connection error:', err);
     });
   }
 }

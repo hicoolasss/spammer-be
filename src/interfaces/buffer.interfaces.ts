@@ -1,5 +1,5 @@
 export interface Buffers {
   leadDataPath: string;
-  userAgentsPath?:  string;
+  userAgentsPath?: string;
   fbClidsPath?: string;
 }

@@ -1,4 +1,4 @@
-import { LogWrapper } from "@utils/LogWrapper";
+import { LogWrapper } from '@utils/LogWrapper';
 
 type JobHandler = (job) => Promise<void>;
 
@@ -7,7 +7,7 @@ export class JobWrapper {
 
   constructor(
     private readonly jobName: string,
-    private readonly handler: JobHandler
+    private readonly handler: JobHandler,
   ) {
     this.logger = new LogWrapper(jobName);
   }

@@ -1,5 +1,5 @@
 import { TaskStatus } from '@enums';
-import { GeoProfileDto, TaskGeoProfileDto } from '@geo-profile/dto/geo-profile.dto';
+import { GeoProfileDto } from '@geo-profile/dto/geo-profile.dto';
 import { TaskResult } from '@interfaces';
 
 export interface TaskDto {

@@ -1,3 +1,4 @@
+import { GeoProfileDto } from '@geo-profile/dto/geo-profile.dto';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import {
@@ -5,9 +6,9 @@ import {
   TaskDto,
   TaskListResponseDto,
 } from '@task/dto/task.dto';
-import { Task, TaskDocument } from './task.schema';
 import { FilterQuery, Model } from 'mongoose';
-import { GeoProfileDto } from '@geo-profile/dto/geo-profile.dto';
+
+import { Task, TaskDocument } from './task.schema';
 
 @Injectable()
 export class TaskService {
@@ -79,7 +80,11 @@ export class TaskService {
       .limit(limit)
       .populate<{
         profileId: GeoProfileDto;
-      }>('profileId', 'name geo leadKey userAgentKey fbclidKey createdBy createdAt', 'GeoProfile')
+      }>(
+        'profileId',
+        'name geo leadKey userAgentKey fbclidKey createdBy createdAt',
+        'GeoProfile',
+      )
       .lean()
       .exec();
 

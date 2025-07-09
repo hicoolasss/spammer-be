@@ -1,4 +1,4 @@
-import { Module, Global } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LogWrapper } from '@utils/LogWrapper';
 import { createClient, RedisClientType } from 'redis';

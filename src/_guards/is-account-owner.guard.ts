@@ -3,8 +3,8 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
-} from "@nestjs/common";
-import { LogWrapper } from "@utils/LogWrapper";
+} from '@nestjs/common';
+import { LogWrapper } from '@utils/LogWrapper';
 
 @Injectable()
 export class IsAccountOwnerGuard implements CanActivate {
@@ -20,17 +20,17 @@ export class IsAccountOwnerGuard implements CanActivate {
 
     if (!userIdFromToken) {
       await this.logger.warn(
-        "Authentication failed: User ID not found in request"
+        'Authentication failed: User ID not found in request',
       );
-      throw new ForbiddenException("User not authenticated");
+      throw new ForbiddenException('User not authenticated');
     }
 
     if (userIdFromParam !== userIdFromToken) {
       await this.logger.warn(
-        `Access denied. User ID mismatch: token=${userIdFromToken}, param=${userIdFromParam}`
+        `Access denied. User ID mismatch: token=${userIdFromToken}, param=${userIdFromParam}`,
       );
       throw new ForbiddenException(
-        "Access denied: You can only access your own account"
+        'Access denied: You can only access your own account',
       );
     }
 

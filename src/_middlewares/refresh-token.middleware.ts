@@ -1,12 +1,12 @@
-import { CookieService } from "@cookie/cookie.service";
+import { CookieService } from '@cookie/cookie.service';
 import {
   Injectable,
   NestMiddleware,
   UnauthorizedException,
-} from "@nestjs/common";
-import { TokenService } from "@token/token.service";
-import { LogWrapper } from "@utils/LogWrapper";
-import { NextFunction, Request, Response } from "express";
+} from '@nestjs/common';
+import { TokenService } from '@token/token.service';
+import { LogWrapper } from '@utils/LogWrapper';
+import { NextFunction, Request, Response } from 'express';
 
 @Injectable()
 export class RefreshTokenMiddleware implements NestMiddleware {
@@ -28,8 +28,8 @@ export class RefreshTokenMiddleware implements NestMiddleware {
       }
 
       if (!refreshToken) {
-        await this.logger.warn("Refresh token not found");
-        throw new UnauthorizedException("Refresh token not found");
+        await this.logger.warn('Refresh token not found');
+        throw new UnauthorizedException('Refresh token not found');
       }
 
       const userId = await this.TokenService.verifyRefreshToken(refreshToken);
@@ -41,8 +41,8 @@ export class RefreshTokenMiddleware implements NestMiddleware {
 
       next();
     } catch (error) {
-      await this.logger.error("Token verification failed", error.message);
-      throw new UnauthorizedException("Token verification failed");
+      await this.logger.error('Token verification failed', error.message);
+      throw new UnauthorizedException('Token verification failed');
     }
   }
 }

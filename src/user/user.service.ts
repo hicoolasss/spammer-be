@@ -1,14 +1,14 @@
-import { DEFAULT_USER_PLAN, GlobalRoles } from "@enums";
-import { BadRequestException, Injectable } from "@nestjs/common";
-import { InjectModel } from "@nestjs/mongoose";
-import { LogWrapper } from "@utils/LogWrapper";
-import * as bcrypt from "bcryptjs";
-import { FilterQuery, Model } from "mongoose";
-import { telegramRegex } from "src/validations/consts";
+import { telegramRegex } from '@consts';
+import { DEFAULT_USER_PLAN, GlobalRoles } from '@enums';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { LogWrapper } from '@utils/LogWrapper';
+import * as bcrypt from 'bcryptjs';
+import { FilterQuery, Model } from 'mongoose';
 
-import { UpdateProfileDto } from "./dto/update-profile.dto";
-import { UserDto } from "./dto/user.dto";
-import { User, UserDocument } from "./user.schema";
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UserDto } from './dto/user.dto';
+import { User, UserDocument } from './user.schema';
 
 @Injectable()
 export class UserService {
@@ -16,12 +16,12 @@ export class UserService {
 
   constructor(
     @InjectModel(User.name)
-    private readonly userModel: Model<UserDocument>
+    private readonly userModel: Model<UserDocument>,
   ) {}
 
   async createNewUser(
     user: UserDto,
-    referralId?: string
+    referralId?: string,
   ): Promise<UserDocument> {
     const hashedPassword = await this.hashPassword(user.password);
 
@@ -41,7 +41,7 @@ export class UserService {
     const userDocument = await this.userModel.findById(id).exec();
 
     if (!userDocument) {
-      throw new BadRequestException("User not found");
+      throw new BadRequestException('User not found');
     }
 
     const userDto: UserDto = {
@@ -58,12 +58,12 @@ export class UserService {
   async getUserEmailById(id: string): Promise<string> {
     const user = await this.userModel
       .findById(id)
-      .select("email")
+      .select('email')
       .lean()
       .exec();
 
     if (!user) {
-      throw new BadRequestException("User not found");
+      throw new BadRequestException('User not found');
     }
 
     return user.email;
@@ -73,7 +73,7 @@ export class UserService {
     const user = this.userModel.findById(id).exec();
 
     if (!user) {
-      throw new BadRequestException("User not found");
+      throw new BadRequestException('User not found');
     }
 
     return user;
@@ -110,7 +110,7 @@ export class UserService {
 
       if (dto.telegram !== undefined) {
         if (!telegramRegex.test(dto.telegram)) {
-          throw new BadRequestException("Telegram username is invalid");
+          throw new BadRequestException('Telegram username is invalid');
         }
         user.telegram = dto.telegram;
       }
@@ -137,21 +137,21 @@ export class UserService {
     limit: number,
     searchQuery?: string,
     sortBy?: string,
-    sortOrder: "asc" | "desc" = "asc",
+    sortOrder: 'asc' | 'desc' = 'asc',
     plan?: string,
-    role?: string
+    role?: string,
   ): Promise<{ users: UserDto[]; total: number }> {
     try {
       const filter: FilterQuery<User> = {};
 
       if (searchQuery) {
         filter.$or = [
-          { email: { $regex: searchQuery, $options: "i" } },
-          { telegram: { $regex: searchQuery, $options: "i" } },
+          { email: { $regex: searchQuery, $options: 'i' } },
+          { telegram: { $regex: searchQuery, $options: 'i' } },
         ];
       }
 
-      if (role && role !== "all") {
+      if (role && role !== 'all') {
         filter.role = role;
       }
 
@@ -159,7 +159,7 @@ export class UserService {
       const sortOptions: Record<string, SortValue> = {};
 
       if (sortBy) {
-        sortOptions[sortBy] = sortOrder === "asc" ? 1 : -1;
+        sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
       } else {
         sortOptions.email = 1;
       }
@@ -204,7 +204,7 @@ export class UserService {
 
     if (isAdmin) {
       await this.logger.warn(
-        `Admin user: ${userId}, was demoted to the '${role}' role`
+        `Admin user: ${userId}, was demoted to the '${role}' role`,
       );
     }
 
@@ -240,7 +240,7 @@ export class UserService {
   private async hashPassword(password: string): Promise<string> {
     const hashedPassword = await bcrypt.hash(
       password,
-      Number(process.env.CRYPTO_SALT)
+      Number(process.env.CRYPTO_SALT),
     );
 
     return hashedPassword;

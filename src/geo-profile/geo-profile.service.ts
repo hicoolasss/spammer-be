@@ -1,17 +1,18 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { CreateGeoProfileDto } from './dto/create-geo-profile.dto';
-import {
-  GeoProfileListResponseDto,
-  GeoProfileDto,
-} from './dto/geo-profile.dto';
 import { Buffers } from '@interfaces';
-import { FilterQuery, Model } from 'mongoose';
-import { GeoProfile, GeoProfileDocument } from './geo-profile.schema';
+import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { REDIS_CLIENT } from 'src/redis/redis.module';
-import { RedisClientType } from 'redis';
 import * as csv from 'csv-parser';
 import { createReadStream, unlink } from 'fs';
+import { FilterQuery, Model } from 'mongoose';
+import { RedisClientType } from 'redis';
+import { REDIS_CLIENT } from 'src/redis/redis.module';
+
+import { CreateGeoProfileDto } from './dto/create-geo-profile.dto';
+import {
+  GeoProfileDto,
+  GeoProfileListResponseDto,
+} from './dto/geo-profile.dto';
+import { GeoProfile, GeoProfileDocument } from './geo-profile.schema';
 
 @Injectable()
 export class GeoProfileService {

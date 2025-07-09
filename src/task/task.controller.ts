@@ -10,13 +10,13 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { TaskService } from '@task/task.service';
-import { UserDto } from '@user/dto/user.dto';
 import {
   CreateTaskDto,
   TaskDto,
   TaskListResponseDto,
 } from '@task/dto/task.dto';
+import { TaskService } from '@task/task.service';
+import { UserDto } from '@user/dto/user.dto';
 
 @Controller('tasks')
 export class TaskController {

@@ -3,7 +3,7 @@ import {
   ExecutionContext,
   Injectable,
   Type,
-} from "@nestjs/common";
+} from '@nestjs/common';
 
 @Injectable()
 export class AnyOfGuards implements CanActivate {
