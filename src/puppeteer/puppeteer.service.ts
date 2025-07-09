@@ -223,9 +223,13 @@ export class PuppeteerService implements OnModuleDestroy {
     page.on('error', (err) =>
       this.logger.error(`Page error [${proxyGeo}]: ${err}`),
     );
-    page.on('pageerror', (err) =>
-      this.logger.error(`Runtime error [${proxyGeo}]: ${err}`),
-    );
+    page.on('pageerror', (err) => {
+      if (err.message.includes('setCookie is not defined')) {
+        this.logger.debug(`Ignoring setCookie error [${proxyGeo}]: ${err.message}`);
+        return;
+      }
+      this.logger.error(`Runtime error [${proxyGeo}]: ${err}`);
+    });
 
     return { page, userAgent };
   }
