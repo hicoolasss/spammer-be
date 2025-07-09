@@ -13,7 +13,7 @@ export const REDIS_CLIENT = 'REDIS_CLIENT';
       provide: REDIS_CLIENT,
       useFactory: async (config: ConfigService): Promise<RedisClientType> => {
         const logger = new LogWrapper(REDIS_CLIENT);
-        const url = config.get<string>(process.env.REDIS_URL);
+        const url = config.get<string>('REDIS_URL');
         const client: RedisClientType = createClient({ url });
 
         client.on('error', (err) => {
