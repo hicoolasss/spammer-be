@@ -55,6 +55,24 @@ export class PuppeteerService implements OnModuleDestroy {
     return script.replace(/^\s*(export|import)\s.*$/gm, '');
   }
 
+  async onModuleInit() {
+    if (!process.env.PROXY_HOST) {
+      this.logger.error('Proxy host is not set in environment variables');
+    }
+
+    if (!process.env.PROXY_PORT) {
+      this.logger.error('Proxy port is not set in environment variables');
+    }
+
+    if (!process.env.PROXY_USERNAME) {
+      this.logger.error('Proxy username is not set in environment variables');
+    }
+
+    if (!process.env.PROXY_PASSWORD) {
+      this.logger.error('Proxy password is not set in environment variables');
+    }
+  }
+
   async onModuleDestroy() {
     for (const wrapper of this.browserPool.values()) {
       for (const p of wrapper.pages) {
@@ -91,8 +109,8 @@ export class PuppeteerService implements OnModuleDestroy {
 
     try {
       await page.authenticate({
-        username: process.env.PROXY_USERNAME!,
-        password: `${process.env.PROXY_PASSWORD!}_country-${proxyGeo}`,
+        username: process.env.PROXY_USERNAME,
+        password: `${process.env.PROXY_PASSWORD}_country-${proxyGeo}`,
       });
     } catch {
       // Ignore
