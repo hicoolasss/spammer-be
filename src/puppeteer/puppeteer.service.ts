@@ -51,8 +51,6 @@ export class PuppeteerService implements OnModuleDestroy {
   private readonly logger = new LogWrapper(PuppeteerService.name);
   private browserPool = new Map<CountryCode, BrowserWrapper>();
 
-  constructor() {} // TODO
-
   private sanitizeModuleScript(script: string): string {
     return script.replace(/^\s*(export|import)\s.*$/gm, '');
   }

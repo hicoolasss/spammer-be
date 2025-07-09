@@ -1,14 +1,3 @@
-export const SKIPPED_FILENAMES = [
-  'auth.js',
-  'main.js',
-  'main_scripts.js',
-  'axios.min.js',
-  'bean-script.js',
-  'app.js',
-  'script.js',
-  'loadBuffer.js',
-];
-
 export const BLACKLISTED_DOMAINS = [
   'afrdtech.com',
   'priallysearly.com',
