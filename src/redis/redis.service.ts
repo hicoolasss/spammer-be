@@ -15,50 +15,50 @@ export class RedisService {
   ) {}
 
   async getLeadData(leadKey: string): Promise<LeadData | null> {
-    try {
-      const data = await this.redisClient.lPop(leadKey);
-      if (!data) {
-        this.logger.warn(`No data found for key: ${leadKey}`);
-        return null;
-      }
-
-      const parsedData = JSON.parse(data as string) as LeadData;
-      this.logger.info(`Retrieved lead data: ${JSON.stringify(parsedData)}`);
-      return parsedData;
-    } catch (error) {
-      this.logger.error(`Error getting lead data from Redis: ${error.message}`);
-      throw error;
-    }
+    return this.safeRedisCall(
+      async () => {
+        const data = await this.redisClient.lPop(leadKey);
+        return data ? (JSON.parse(data as string) as LeadData) : null;
+      },
+      `No data found for key: ${leadKey}`,
+      (data) => `Retrieved lead data: ${JSON.stringify(data)}`,
+    );
   }
 
   async getFbclidData(fbclKey: string): Promise<string | null> {
-    try {
-      const data = await this.redisClient.lPop(fbclKey);
-      if (!data) {
-        this.logger.warn(`No fbcl data found for key: ${fbclKey}`);
-        return null;
-      }
-
-      this.logger.info(`Retrieved fbcl data: ${data}`);
-      return data as string;
-    } catch (error) {
-      this.logger.error(`Error getting fbcl data from Redis: ${error.message}`);
-      throw error;
-    }
+    return this.safeRedisCall(
+      async () => {
+        const data = await this.redisClient.lPop(fbclKey);
+        return data as string;
+      },
+      `No fbcl data found for key: ${fbclKey}`,
+      (data) => `Retrieved fbcl data: ${data}`,
+    );
   }
 
   async getUserAgentsData(userAgentKey: string): Promise<string[]> {
-    try {
-      const data = await this.redisClient.lRange(userAgentKey, 0, -1);
-      if (!data || data.length === 0) {
-        this.logger.warn(`No user agents found for key: ${userAgentKey}`);
-        return [];
-      }
+    return this.safeRedisCall(
+      () => this.redisClient.lRange(userAgentKey, 0, -1),
+      `No user agents found for key: ${userAgentKey}`,
+      (data) => `Retrieved user agents: ${data}`,
+    ) as Promise<string[]>;
+  }
 
-      this.logger.info(`Retrieved user agents: ${data}`);
-      return data as string[];
+  private async safeRedisCall<T>(
+    action: () => Promise<T>,
+    warnMsg: string,
+    infoMsg?: (data: T) => string,
+  ): Promise<T | null> {
+    try {
+      const data = await action();
+      if (!data || (Array.isArray(data) && data.length === 0)) {
+        this.logger.warn(warnMsg);
+        return Array.isArray(data) ? ([] as unknown as T) : null;
+      }
+      if (infoMsg) this.logger.info(infoMsg(data));
+      return data;
     } catch (error) {
-      this.logger.error(`Error getting user agents from Redis: ${error.message}`);
+      this.logger.error(`Redis error: ${error.message}`);
       throw error;
     }
   }
