@@ -31,7 +31,7 @@ export class RedisService {
     }
   }
 
-  async getFbclData(fbclKey: string): Promise<string | null> {
+  async getFbclidData(fbclKey: string): Promise<string | null> {
     try {
       const data = await this.redisClient.lPop(fbclKey);
       if (!data) {
@@ -43,6 +43,22 @@ export class RedisService {
       return data as string;
     } catch (error) {
       this.logger.error(`Error getting fbcl data from Redis: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async getUserAgentsData(userAgentKey: string): Promise<string[]> {
+    try {
+      const data = await this.redisClient.lRange(userAgentKey, 0, -1);
+      if (!data || data.length === 0) {
+        this.logger.warn(`No user agents found for key: ${userAgentKey}`);
+        return [];
+      }
+
+      this.logger.info(`Retrieved user agents: ${data}`);
+      return data as string[];
+    } catch (error) {
+      this.logger.error(`Error getting user agents from Redis: ${error.message}`);
       throw error;
     }
   }
