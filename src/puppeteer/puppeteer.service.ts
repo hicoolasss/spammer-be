@@ -18,7 +18,6 @@ import {
   getRandomItem,
   HEADERS,
   MOBILE_VIEWPORTS,
-  USER_AGENTS,
 } from '@utils';
 import * as dns from 'dns';
 import { Browser, launch, Page } from 'puppeteer';
@@ -99,9 +98,9 @@ export class PuppeteerService implements OnModuleDestroy {
   async acquirePage(
     creativeId: string,
     proxyGeo: CountryCode,
-  ): Promise<{ page: Page; userAgent: string }> {
+    userAgent: string,
+  ): Promise<Page> {
     const { locale, timeZone } = LOCALE_SETTINGS[proxyGeo];
-    const userAgent = getRandomItem(USER_AGENTS);
     const wrapper = await this.ensureBrowserForGeo(proxyGeo);
 
     const page = await wrapper.context.newPage();
@@ -231,7 +230,7 @@ export class PuppeteerService implements OnModuleDestroy {
       this.logger.error(`Runtime error [${proxyGeo}]: ${err}`);
     });
 
-    return { page, userAgent };
+    return page;
   }
 
   async releasePage(page: Page): Promise<void> {

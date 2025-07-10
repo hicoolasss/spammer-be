@@ -4,7 +4,7 @@ import { LeadData } from '@interfaces';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Task } from '@task/task.schema';
-import { LogWrapper } from '@utils';
+import { getRandomItem, LogWrapper } from '@utils';
 import { Model } from 'mongoose';
 import { Page } from 'puppeteer';
 
@@ -45,24 +45,15 @@ export class TaskProcessorService {
         return;
       }
 
-      this.logger.info(
-        `Found profile: ${profile.name}, leadKey: ${profile.leadKey}`,
-      );
+      const { leadKey, fbclidKey, userAgentKey } = profile;
+      const leadData = await this.redisService.getLeadData(leadKey);
+      const userAgents = await this.redisService.getUserAgentsData(userAgentKey);
+      const fbclid = await this.redisService.getFbclidData(fbclidKey);
 
-      const leadData = await this.redisService.getLeadData(profile.leadKey);
-      if (!leadData) {
-        this.logger.error(`No lead data found for key: ${profile.leadKey}`);
-        return;
-      }
+      const url = task.url + '&fbclid=' + fbclid;
+      const userAgent = getRandomItem(userAgents);
 
-      this.logger.info(`Retrieved lead data: ${JSON.stringify(leadData)}`);
-
-      // TODO
-      const mockGeo = 'AU';
-      const mockUrl =
-        'https://editingspace.com/?media_type=video&utm_campaign=FqsA638%26101%26FF%2FSS&ad_id=120227933942750634&adset_name=FqsA638%26101%26FF%2FSS+-+Copy&utm_placement=Facebook_Mobile_Feed&utm_content=obvau&utm_medium=120227933942770634&fbclid=IwY2xjawLa61NleHRuA2FlbQEwAGFkaWQBqyKrQbli6gEe6IqtAa17Hqj5_YHTFrfEmJteN7VQ5iNZM4pw_cXuhW0maARLy0o2_9-zGoI_aem_2Fe0n3pG1bJ9i4VIU_I5xA&utm_source=fb&utm_id=120227933866430634&utm_term=120227933942770634';
-      await this.runPuppeteerTask(mockUrl, mockGeo, leadData);
-      // await this.runPuppeteerTask(task.url, task.geo, leadData);
+      await this.runPuppeteerTask(url, task.geo, leadData, userAgent);
     } catch (error) {
       this.logger.error(`Error processing task: ${error.message}`, error);
     }
@@ -72,13 +63,15 @@ export class TaskProcessorService {
     url: string,
     geo: string,
     leadData: LeadData,
+    userAgent: string,
   ): Promise<void> {
     let page: Page | null = null;
 
     try {
-      const { page: puppeteerPage } = await this.puppeteerService.acquirePage(
+      const puppeteerPage = await this.puppeteerService.acquirePage(
         'task-processor',
         geo as CountryCode,
+        userAgent,
       );
       page = puppeteerPage;
 
