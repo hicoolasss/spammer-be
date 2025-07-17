@@ -7,3 +7,4 @@ export * from './localeSettings';
 export * from './LogWrapper';
 export * from './mobileViewports';
 export * from './random';
+export * from './userAgents';

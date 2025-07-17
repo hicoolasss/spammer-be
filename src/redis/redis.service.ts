@@ -1,6 +1,6 @@
 import { LeadData } from '@interfaces';
 import { Inject, Injectable } from '@nestjs/common';
-import { LogWrapper } from '@utils';
+import { LogWrapper, USER_AGENTS } from '@utils';
 import { RedisClientType } from 'redis';
 
 import { REDIS_CLIENT } from './redis.module';
@@ -37,11 +37,17 @@ export class RedisService {
   }
 
   async getUserAgentsData(userAgentKey: string): Promise<string[]> {
-    return this.safeRedisCall(
+    const data = (await this.safeRedisCall(
       () => this.redisClient.lRange(userAgentKey, 0, -1),
       `No user agents found for key: ${userAgentKey}`,
       (data) => `Retrieved user agents: ${data}`,
-    ) as Promise<string[]>;
+    )) as string[] | null | undefined;
+
+    if (!data || data.length === 0) {
+      return USER_AGENTS;
+    }
+
+    return data;
   }
 
   private async safeRedisCall<T>(
