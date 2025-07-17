@@ -48,13 +48,13 @@ export class TaskProcessorService {
       }
 
       const { leadKey, fbclidKey, userAgentKey } = profile;
-      let leadData = await this.redisService.getLeadData(leadKey);
+      const leadData = await this.redisService.getLeadData(leadKey);
       // TODO:delete after testing
-      leadData = {
-        ...leadData,
-        phone: leadData.email,
-        email: leadData.phone,
-      };
+      // leadData = {
+      //   ...leadData,
+      //   phone: leadData.email,
+      //   email: leadData.phone,
+      // };
       // END
       const userAgents =
         await this.redisService.getUserAgentsData(userAgentKey);
@@ -466,119 +466,24 @@ export class TaskProcessorService {
           await new Promise((resolve) => setTimeout(resolve, 500));
 
           const success = await page.evaluate(
-            (selector, value, fieldType) => {
+            (selector, value) => {
               const element = document.querySelector(
                 selector,
               ) as HTMLInputElement;
               if (element) {
-                let overlay = document.getElementById('form-fill-overlay');
-                if (!overlay) {
-                  overlay = document.createElement('div');
-                  overlay.id = 'form-fill-overlay';
-                  overlay.style.cssText = `
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    background: linear-gradient(135deg, #4CAF50, #45a049);
-                    color: white;
-                    padding: 15px 20px;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-                    z-index: 10000;
-                    font-family: Arial, sans-serif;
-                    font-size: 14px;
-                    font-weight: bold;
-                    min-width: 200px;
-                    max-width: 300px;
-                    word-wrap: break-word;
-                    animation: slideIn 0.3s ease-out;
-                  `;
-
-                  const style = document.createElement('style');
-                  style.textContent = `
-                    @keyframes slideIn {
-                      from { transform: translateX(100%); opacity: 0; }
-                      to { transform: translateX(0); opacity: 1; }
-                    }
-                    @keyframes pulse {
-                      0% { transform: scale(1); }
-                      50% { transform: scale(1.05); }
-                      100% { transform: scale(1); }
-                    }
-                    @keyframes blink {
-                      0%, 50% { opacity: 1; }
-                      51%, 100% { opacity: 0; }
-                    }
-                  `;
-                  document.head.appendChild(style);
-                  document.body.appendChild(overlay);
-                }
-
                 element.focus();
                 element.value = '';
                 element.dispatchEvent(new Event('input', { bubbles: true }));
 
                 let currentValue = '';
-                const typeSpeed = 30 + Math.random() * 50;
+                const typeSpeed = 250 + Math.random() * 100;
 
                 const typeNextChar = () => {
                   if (currentValue.length < value.length) {
                     currentValue += value[currentValue.length];
                     element.value = currentValue;
-                    element.dispatchEvent(
-                      new Event('input', { bubbles: true }),
-                    );
-
-                    overlay.innerHTML = `
-                      <div style="margin-bottom: 5px; font-size: 12px; opacity: 0.9;">
-                        🎯 Заполняем поле: <strong>${fieldType}</strong>
-                      </div>
-                      <div style="font-size: 16px; animation: pulse 0.5s ease-in-out;">
-                        ${currentValue}<span style="animation: blink 1s infinite;">|</span>
-                      </div>
-                      <div style="margin-top: 5px; font-size: 11px; opacity: 0.8;">
-                        ${Math.round((currentValue.length / value.length) * 100)}% завершено
-                      </div>
-                    `;
-
-                    element.style.border = '3px solid #4CAF50';
-                    element.style.backgroundColor = '#f0f8f0';
-                    element.style.boxShadow = '0 0 10px rgba(76, 175, 80, 0.5)';
 
                     setTimeout(typeNextChar, typeSpeed);
-                  } else {
-                    element.dispatchEvent(
-                      new Event('change', { bubbles: true }),
-                    );
-                    element.style.border = '';
-                    element.style.backgroundColor = '';
-                    element.style.boxShadow = '';
-
-                    overlay.innerHTML = `
-                      <div style="margin-bottom: 5px; font-size: 12px; opacity: 0.9;">
-                        ✅ Заполнено поле: <strong>${fieldType}</strong>
-                      </div>
-                      <div style="font-size: 16px; color: #4CAF50;">
-                        ${value}
-                      </div>
-                      <div style="margin-top: 5px; font-size: 11px; opacity: 0.8;">
-                        100% завершено
-                      </div>
-                    `;
-
-                    const label = (element.closest('label') ||
-                      document.querySelector(`label[for="${element.id}"]`) ||
-                      element.previousElementSibling) as HTMLElement;
-                    if (label) {
-                      label.style.color = '#4CAF50';
-                      label.style.fontWeight = 'bold';
-                    }
-
-                    setTimeout(() => {
-                      if (overlay && overlay.parentNode) {
-                        overlay.parentNode.removeChild(overlay);
-                      }
-                    }, 2000);
                   }
                 };
 
@@ -610,8 +515,8 @@ export class TaskProcessorService {
       }
 
       this.logger.info('All fields filled, preparing to submit form...');
-      await new Promise(
-        (resolve) => setTimeout(resolve, 1000 + Math.random() * 1000),
+      await new Promise((resolve) =>
+        setTimeout(resolve, 1000 + Math.random() * 1000),
       );
 
       const submitResult = await page.evaluate((formIndex) => {
@@ -624,15 +529,8 @@ export class TaskProcessorService {
         ) as HTMLButtonElement | HTMLInputElement;
 
         if (submitButton && submitButton.offsetParent !== null) {
-          submitButton.style.backgroundColor = '#4CAF50';
-          submitButton.style.color = 'white';
-          submitButton.style.transform = 'scale(1.05)';
-
           setTimeout(() => {
             submitButton.click();
-            submitButton.style.backgroundColor = '';
-            submitButton.style.color = '';
-            submitButton.style.transform = '';
           }, 1000);
 
           return 'clicked_submit_button';
@@ -644,8 +542,6 @@ export class TaskProcessorService {
 
       this.logger.info(`🎉 Form submit result: ${submitResult}`);
       this.logger.info('✅ AI-powered form filling completed successfully!');
-
-      await new Promise((resolve) => setTimeout(resolve, 3000));
     } catch (error) {
       if (
         error.message.includes('Execution context was destroyed') ||
