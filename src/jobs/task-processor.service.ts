@@ -8,6 +8,7 @@ import { getRandomItem, LogWrapper } from '@utils';
 import { Model } from 'mongoose';
 import { Page } from 'puppeteer';
 
+import { AIService } from '../ai/ai.service';
 import { PuppeteerService } from '../puppeteer/puppeteer.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -20,11 +21,12 @@ export class TaskProcessorService {
     @InjectModel(GeoProfile.name) private geoProfileModel: Model<GeoProfile>,
     private readonly puppeteerService: PuppeteerService,
     private readonly redisService: RedisService,
+    private readonly aiService: AIService,
   ) {}
 
   async processRandomTask(): Promise<void> {
     try {
-      const mockTaskId = '686804a08e868743ae0316ad'; // TODO
+      const mockTaskId = '686804a08e868743ae0316ad';
       const taskId = mockTaskId;
 
       this.logger.info(`Processing task with ID: ${taskId}`);
@@ -46,11 +48,19 @@ export class TaskProcessorService {
       }
 
       const { leadKey, fbclidKey, userAgentKey } = profile;
-      const leadData = await this.redisService.getLeadData(leadKey);
-      const userAgents = await this.redisService.getUserAgentsData(userAgentKey);
+      let leadData = await this.redisService.getLeadData(leadKey);
+      // TODO:delete after testing
+      leadData = {
+        ...leadData,
+        phone: leadData.email,
+        email: leadData.phone,
+      };
+      // END
+      const userAgents =
+        await this.redisService.getUserAgentsData(userAgentKey);
       const fbclid = await this.redisService.getFbclidData(fbclidKey);
 
-      const url = task.url + '&fbclid=' + fbclid;
+      const url = task.url + '?&fbclid=' + fbclid;
       const userAgent = getRandomItem(userAgents);
 
       await this.runPuppeteerTask(url, task.geo, leadData, userAgent);
@@ -124,7 +134,7 @@ export class TaskProcessorService {
   }
 
   private async simulateScrolling(page: Page): Promise<void> {
-    this.logger.info('Simulating scrolling...');
+    this.logger.info('Simulating natural scrolling...');
 
     if (page.isClosed()) {
       this.logger.warn('Page is closed, skipping scrolling');
@@ -132,23 +142,44 @@ export class TaskProcessorService {
     }
 
     try {
-      for (let i = 0; i < 3; i++) {
+      const pageHeight = await page.evaluate(() => document.body.scrollHeight);
+      const viewportHeight = await page.evaluate(() => window.innerHeight);
+
+      this.logger.info(
+        `Page height: ${pageHeight}px, Viewport height: ${viewportHeight}px`,
+      );
+
+      const scrollSteps = Math.ceil(pageHeight / viewportHeight);
+
+      for (let i = 0; i < scrollSteps; i++) {
         if (page.isClosed()) break;
 
-        await page.evaluate(() => {
-          window.scrollBy(0, Math.random() * 500 + 300);
-        });
-        await new Promise((resolve) =>
-          setTimeout(resolve, 1000 + Math.random() * 1000),
-        );
+        const scrollAmount = Math.floor(Math.random() * 200) + 300;
+
+        await page.evaluate((amount) => {
+          window.scrollBy({
+            top: amount,
+            behavior: 'smooth',
+          });
+        }, scrollAmount);
+
+        const pauseTime = Math.floor(Math.random() * 300) + 200;
+        await new Promise((resolve) => setTimeout(resolve, pauseTime));
       }
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       if (!page.isClosed()) {
         await page.evaluate(() => {
-          window.scrollTo(0, 0);
+          window.scrollTo({
+            top: 0,
+            behavior: 'smooth',
+          });
         });
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
       }
+
+      this.logger.info('Natural scrolling completed');
     } catch (error) {
       if (error.message.includes('Execution context was destroyed')) {
         this.logger.warn('Page context destroyed during scrolling');
@@ -159,7 +190,7 @@ export class TaskProcessorService {
   }
 
   private async simulateRandomClicks(page: Page): Promise<void> {
-    this.logger.info('Simulating random clicks...');
+    this.logger.info('Simulating natural clicks and navigation...');
 
     if (page.isClosed()) {
       this.logger.warn('Page is closed, skipping random clicks');
@@ -167,17 +198,92 @@ export class TaskProcessorService {
     }
 
     try {
-      for (let i = 0; i < 2; i++) {
+      const clickableElements = await page.evaluate(() => {
+        const elements = Array.from(
+          document.querySelectorAll(
+            'a, button, [role="button"], .btn, .button',
+          ),
+        );
+        return elements
+          .filter((el) => {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return (
+              rect.width > 0 &&
+              rect.height > 0 &&
+              style.display !== 'none' &&
+              style.visibility !== 'hidden' &&
+              style.opacity !== '0' &&
+              rect.top >= 0 &&
+              rect.left >= 0 &&
+              rect.bottom <= window.innerHeight &&
+              rect.right <= window.innerWidth
+            );
+          })
+          .map((el) => ({
+            tagName: el.tagName.toLowerCase(),
+            text: el.textContent?.trim().substring(0, 50) || '',
+            href: el.getAttribute('href') || '',
+            className: el.className || '',
+            rect: el.getBoundingClientRect(),
+          }));
+      });
+
+      this.logger.info(`Found ${clickableElements.length} clickable elements`);
+
+      const elementsToClick = clickableElements
+        .filter((el) => {
+          const href = el.href.toLowerCase();
+          return (
+            !href.includes('logout') &&
+            !href.includes('signout') &&
+            !href.includes('exit') &&
+            !href.includes('javascript:') &&
+            !href.startsWith('#')
+          );
+        })
+        .slice(0, Math.min(3, clickableElements.length));
+
+      for (const element of elementsToClick) {
         if (page.isClosed()) break;
 
-        const x = Math.random() * 800 + 100;
-        const y = Math.random() * 600 + 100;
+        try {
+          this.logger.info(
+            `Clicking on ${element.tagName}: "${element.text}" (${element.href})`,
+          );
 
-        await page.mouse.click(x, y);
-        await new Promise((resolve) =>
-          setTimeout(resolve, 500 + Math.random() * 1000),
-        );
+          await page.evaluate(
+            (selector) => {
+              const el = document.querySelector(selector) as HTMLElement;
+              if (el) {
+                el.click();
+              }
+            },
+            `${element.tagName}${element.href ? `[href="${element.href}"]` : ''}`,
+          );
+
+          await new Promise((resolve) =>
+            setTimeout(resolve, 2000 + Math.random() * 3000),
+          );
+
+          if (element.href && !element.href.startsWith('#')) {
+            this.logger.info('Waiting for page navigation...');
+            await page
+              .waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 })
+              .catch(() => {
+                this.logger.warn('Page navigation timeout');
+              });
+
+            await new Promise((resolve) =>
+              setTimeout(resolve, 3000 + Math.random() * 5000),
+            );
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to click element: ${error.message}`);
+        }
       }
+
+      this.logger.info('Natural clicking and navigation completed');
     } catch (error) {
       if (
         error.message.includes('Execution context was destroyed') ||
@@ -191,7 +297,7 @@ export class TaskProcessorService {
   }
 
   private async findAndOpenForm(page: Page): Promise<void> {
-    this.logger.info('Looking for form...');
+    this.logger.info('🔍 Looking for forms on the page...');
 
     if (page.isClosed()) {
       this.logger.warn('Page is closed, skipping form search');
@@ -199,75 +305,67 @@ export class TaskProcessorService {
     }
 
     try {
-      const formSelectors = [
-        'form',
-        '[data-form]',
-        '.form',
-        '#form',
-        '[class*="form"]',
-        '[id*="form"]',
-        'button[type="submit"]',
-        'input[type="submit"]',
-        '[class*="submit"]',
-        '[class*="apply"]',
-        '[class*="contact"]',
-      ];
+      const formInfo = await page.evaluate(() => {
+        const forms = Array.from(document.querySelectorAll('form'));
+        return forms.map((form, index) => ({
+          index,
+          id: form.id || '',
+          className: form.className || '',
+          action: form.action || '',
+          method: form.method || '',
+          visibleInputs: Array.from(form.querySelectorAll('input')).filter(
+            (input) => {
+              const style = window.getComputedStyle(input);
+              return (
+                input.type !== 'hidden' &&
+                style.display !== 'none' &&
+                style.visibility !== 'hidden'
+              );
+            },
+          ).length,
+        }));
+      });
 
-      for (let attempt = 0; attempt < 10; attempt++) {
-        if (page.isClosed()) break;
-
-        for (const selector of formSelectors) {
-          if (page.isClosed()) break;
-
-          try {
-            await page.waitForSelector(selector, { timeout: 1000 });
-            const elements = await page.$$(selector);
-
-            if (elements.length > 0) {
-              if (elements.length > 1) {
-                this.logger.warn(
-                  `Found ${elements.length} form elements with selector: ${selector}. This might indicate multiple forms on the page.`,
-                );
-              } else {
-                this.logger.info(
-                  `Found form element with selector: ${selector}`,
-                );
-              }
-
-              const isVisible = await elements[0].evaluate((el) => {
-                const rect = el.getBoundingClientRect();
-                const style = window.getComputedStyle(el);
-                return (
-                  rect.width > 0 &&
-                  rect.height > 0 &&
-                  style.display !== 'none' &&
-                  style.visibility !== 'hidden' &&
-                  style.opacity !== '0'
-                );
-              });
-
-              if (isVisible) {
-                await elements[0].scrollIntoView();
-                await new Promise((resolve) => setTimeout(resolve, 500));
-
-                await elements[0].click({ delay: 100 });
-                this.logger.info('Successfully clicked on form element');
-                await new Promise((resolve) => setTimeout(resolve, 2000));
-                return;
-              } else {
-                this.logger.debug(`Element ${selector} found but not visible`);
-              }
-            }
-          } catch {
-            continue;
-          }
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        this.logger.debug(`Form search attempt ${attempt + 1}/10`);
+      if (formInfo.length === 0) {
+        this.logger.warn('❌ No forms found on the page');
+        return;
       }
 
-      this.logger.warn('No clickable form found on the page after 10 attempts');
+      this.logger.info(`📋 Found ${formInfo.length} form(s) on the page:`);
+      formInfo.forEach((form) => {
+        this.logger.info(
+          `  Form #${form.index}: ${form.visibleInputs} visible inputs, action: ${form.action}`,
+        );
+      });
+
+      const bestForm =
+        formInfo.find((form) => form.visibleInputs > 0) || formInfo[0];
+
+      if (bestForm) {
+        this.logger.info(`🎯 Selected form #${bestForm.index} for interaction`);
+
+        await page.evaluate((formIndex) => {
+          const forms = Array.from(document.querySelectorAll('form'));
+          const form = forms[formIndex];
+          if (form) {
+            form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            form.style.border = '3px solid #2196F3';
+            form.style.boxShadow = '0 0 20px rgba(33, 150, 243, 0.3)';
+
+            setTimeout(() => {
+              form.style.border = '';
+              form.style.boxShadow = '';
+            }, 3000);
+          }
+        }, bestForm.index);
+
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        this.logger.info(
+          '✅ Form search completed - AI will analyze forms during filling',
+        );
+      }
     } catch (error) {
       if (
         error.message.includes('Execution context was destroyed') ||
@@ -284,7 +382,7 @@ export class TaskProcessorService {
     page: Page,
     leadData: LeadData,
   ): Promise<void> {
-    this.logger.info('Filling form with lead data...');
+    this.logger.info('Filling form with lead data using AI analysis...');
     this.logger.info(`Available lead data: ${JSON.stringify(leadData)}`);
 
     if (page.isClosed()) {
@@ -293,144 +391,261 @@ export class TaskProcessorService {
     }
 
     try {
-      const formInfo = await page.evaluate(() => {
-        const forms = Array.from(document.querySelectorAll('form'));
-        const result = forms.map((form, idx) => {
-          const inputs = Array.from(
-            form.querySelectorAll('input'),
-          ) as HTMLInputElement[];
-          const visibleInputs = inputs.filter(
-            (el) =>
-              (el.type === 'text' || el.type === 'email') &&
-              el.offsetParent !== null &&
-              window.getComputedStyle(el).display !== 'none' &&
-              window.getComputedStyle(el).visibility !== 'hidden',
-          );
-          return {
-            idx,
-            inputCount: inputs.length,
-            visibleTextOrEmailCount: visibleInputs.length,
-            fields: visibleInputs.map((el) => ({
-              type: el.type,
-              name: el.name || '',
-              id: el.id || '',
-              placeholder: el.placeholder || '',
-            })),
-          };
-        });
-        return result;
+      await page.evaluate(() => {
+        const forms = document.querySelectorAll('form');
+        if (forms.length > 0) {
+          forms[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
       });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      const formsWithFields = formInfo.filter(
-        (f) => f.visibleTextOrEmailCount > 0,
-      );
-      if (formInfo.length > 1) {
-        this.logger.warn(
-          `Found ${formInfo.length} forms on page. Forms with visible text/email fields: ${formsWithFields.length}`,
-        );
-      }
-      if (formsWithFields.length === 0) {
-        this.logger.warn(
-          'No suitable form with visible text/email fields found',
-        );
+      const formsHtml = await this.aiService.extractFormHtml(page);
+
+      if (!formsHtml.trim()) {
+        this.logger.warn('No forms found on the page');
         return;
       }
-      const targetFormIdx = formsWithFields[0].idx;
-      const inputFields = formsWithFields[0].fields;
+
+      const analysis = await this.aiService.analyzeForms(formsHtml);
+
+      if (!analysis.bestForm || analysis.bestForm.fields.length === 0) {
+        this.logger.warn('AI could not identify suitable form fields');
+        return;
+      }
+
       this.logger.info(
-        `Using form #${targetFormIdx} with fields: ${JSON.stringify(inputFields)}`,
+        `AI selected form #${analysis.bestForm.formIndex} with ${analysis.bestForm.fields.length} fields`,
+      );
+      this.logger.info(
+        `AI confidence: ${analysis.bestForm.confidence}, reason: ${analysis.bestForm.reason}`,
       );
 
-      for (let i = 0; i < inputFields.length; i++) {
-        const field = inputFields[i];
+      await page.evaluate((formIndex) => {
+        const forms = Array.from(document.querySelectorAll('form'));
+        const form = forms[formIndex];
+        if (form) {
+          form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, analysis.bestForm.formIndex);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      for (const field of analysis.bestForm.fields) {
+        if (page.isClosed()) {
+          this.logger.warn('Page is closed, stopping form filling');
+          return;
+        }
+
         let value = '';
-        if (field.type === 'email') {
-          value = leadData.email || '';
-        } else if (
-          /last/i.test(field.name) ||
-          /last/i.test(field.id) ||
-          /last/i.test(field.placeholder)
-        ) {
-          value = leadData.lastname || '';
-        } else if (
-          /phone|tel/i.test(field.name) ||
-          /phone|tel/i.test(field.id) ||
-          /phone|tel/i.test(field.placeholder)
-        ) {
-          value = leadData.phone || '';
-        } else if (
-          /name/i.test(field.name) ||
-          /name/i.test(field.id) ||
-          /name/i.test(field.placeholder)
-        ) {
-          value = leadData.name || '';
+        switch (field.type) {
+          case 'name':
+            value = leadData.name || '';
+            break;
+          case 'surname':
+            value = leadData.lastname || '';
+            break;
+          case 'phone':
+            value = leadData.phone || '';
+            break;
+          case 'email':
+            value = leadData.email || '';
+            break;
         }
 
         if (!value) {
-          this.logger.warn(
-            `No value found for field: ${JSON.stringify(field)}, skipping`,
-          );
+          this.logger.warn(`No value for field type: ${field.type}, skipping`);
           continue;
         }
 
-        await page.evaluate(
-          (formIdx, field, value) => {
-            const forms = Array.from(document.querySelectorAll('form'));
-            const form = forms[formIdx];
-            if (!form) return;
-            const candidates = Array.from(
-              form.querySelectorAll('input'),
-            ) as HTMLInputElement[];
-            const el = candidates.find(
-              (el) =>
-                el.type === field.type &&
-                el.name === field.name &&
-                el.id === field.id &&
-                el.placeholder === field.placeholder,
-            );
-            if (el) {
-              el.focus();
-              el.value = '';
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.value = value;
-              el.dispatchEvent(new Event('input', { bubbles: true }));
+        try {
+          await page.evaluate((selector) => {
+            const element = document.querySelector(selector) as HTMLElement;
+            if (element) {
+              element.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
-          },
-          targetFormIdx,
-          field,
-          value,
-        );
-        this.logger.info(
-          `Filled field: ${JSON.stringify(field)} with value: ${value}`,
-        );
-        await new Promise((resolve) => setTimeout(resolve, 300));
+          }, field.selector);
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          const success = await page.evaluate(
+            (selector, value, fieldType) => {
+              const element = document.querySelector(
+                selector,
+              ) as HTMLInputElement;
+              if (element) {
+                let overlay = document.getElementById('form-fill-overlay');
+                if (!overlay) {
+                  overlay = document.createElement('div');
+                  overlay.id = 'form-fill-overlay';
+                  overlay.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: linear-gradient(135deg, #4CAF50, #45a049);
+                    color: white;
+                    padding: 15px 20px;
+                    border-radius: 10px;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                    z-index: 10000;
+                    font-family: Arial, sans-serif;
+                    font-size: 14px;
+                    font-weight: bold;
+                    min-width: 200px;
+                    max-width: 300px;
+                    word-wrap: break-word;
+                    animation: slideIn 0.3s ease-out;
+                  `;
+
+                  const style = document.createElement('style');
+                  style.textContent = `
+                    @keyframes slideIn {
+                      from { transform: translateX(100%); opacity: 0; }
+                      to { transform: translateX(0); opacity: 1; }
+                    }
+                    @keyframes pulse {
+                      0% { transform: scale(1); }
+                      50% { transform: scale(1.05); }
+                      100% { transform: scale(1); }
+                    }
+                    @keyframes blink {
+                      0%, 50% { opacity: 1; }
+                      51%, 100% { opacity: 0; }
+                    }
+                  `;
+                  document.head.appendChild(style);
+                  document.body.appendChild(overlay);
+                }
+
+                element.focus();
+                element.value = '';
+                element.dispatchEvent(new Event('input', { bubbles: true }));
+
+                let currentValue = '';
+                const typeSpeed = 30 + Math.random() * 50;
+
+                const typeNextChar = () => {
+                  if (currentValue.length < value.length) {
+                    currentValue += value[currentValue.length];
+                    element.value = currentValue;
+                    element.dispatchEvent(
+                      new Event('input', { bubbles: true }),
+                    );
+
+                    overlay.innerHTML = `
+                      <div style="margin-bottom: 5px; font-size: 12px; opacity: 0.9;">
+                        🎯 Заполняем поле: <strong>${fieldType}</strong>
+                      </div>
+                      <div style="font-size: 16px; animation: pulse 0.5s ease-in-out;">
+                        ${currentValue}<span style="animation: blink 1s infinite;">|</span>
+                      </div>
+                      <div style="margin-top: 5px; font-size: 11px; opacity: 0.8;">
+                        ${Math.round((currentValue.length / value.length) * 100)}% завершено
+                      </div>
+                    `;
+
+                    element.style.border = '3px solid #4CAF50';
+                    element.style.backgroundColor = '#f0f8f0';
+                    element.style.boxShadow = '0 0 10px rgba(76, 175, 80, 0.5)';
+
+                    setTimeout(typeNextChar, typeSpeed);
+                  } else {
+                    element.dispatchEvent(
+                      new Event('change', { bubbles: true }),
+                    );
+                    element.style.border = '';
+                    element.style.backgroundColor = '';
+                    element.style.boxShadow = '';
+
+                    overlay.innerHTML = `
+                      <div style="margin-bottom: 5px; font-size: 12px; opacity: 0.9;">
+                        ✅ Заполнено поле: <strong>${fieldType}</strong>
+                      </div>
+                      <div style="font-size: 16px; color: #4CAF50;">
+                        ${value}
+                      </div>
+                      <div style="margin-top: 5px; font-size: 11px; opacity: 0.8;">
+                        100% завершено
+                      </div>
+                    `;
+
+                    const label = (element.closest('label') ||
+                      document.querySelector(`label[for="${element.id}"]`) ||
+                      element.previousElementSibling) as HTMLElement;
+                    if (label) {
+                      label.style.color = '#4CAF50';
+                      label.style.fontWeight = 'bold';
+                    }
+
+                    setTimeout(() => {
+                      if (overlay && overlay.parentNode) {
+                        overlay.parentNode.removeChild(overlay);
+                      }
+                    }, 2000);
+                  }
+                };
+
+                setTimeout(typeNextChar, 100);
+                return true;
+              }
+              return false;
+            },
+            field.selector,
+            value,
+            field.type,
+          );
+
+          if (success) {
+            this.logger.info(
+              `✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
+            );
+
+            const pauseTime = 300 + Math.random() * 700;
+            await new Promise((resolve) => setTimeout(resolve, pauseTime));
+          } else {
+            this.logger.warn(`❌ Failed to find field ${field.selector}`);
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Failed to fill field ${field.selector}: ${error.message}`,
+          );
+        }
       }
 
-      const submitResult = await page.evaluate(async (formIdx) => {
+      this.logger.info('All fields filled, preparing to submit form...');
+      await new Promise(
+        (resolve) => setTimeout(resolve, 1000 + Math.random() * 1000),
+      );
+
+      const submitResult = await page.evaluate((formIndex) => {
         const forms = Array.from(document.querySelectorAll('form'));
-        const form = forms[formIdx];
+        const form = forms[formIndex];
         if (!form) return 'form_not_found';
-        const btn = Array.from(
-          form.querySelectorAll('button[type="submit"],input[type="submit"]'),
-        ).find((el) => {
-          const htmlEl = el as HTMLElement;
-          return (
-            htmlEl.offsetParent !== null &&
-            window.getComputedStyle(htmlEl).display !== 'none' &&
-            window.getComputedStyle(htmlEl).visibility !== 'hidden'
-          );
-        });
-        if (btn) {
-          (btn as HTMLButtonElement | HTMLInputElement).click();
+
+        const submitButton = form.querySelector(
+          'button[type="submit"], input[type="submit"]',
+        ) as HTMLButtonElement | HTMLInputElement;
+
+        if (submitButton && submitButton.offsetParent !== null) {
+          submitButton.style.backgroundColor = '#4CAF50';
+          submitButton.style.color = 'white';
+          submitButton.style.transform = 'scale(1.05)';
+
+          setTimeout(() => {
+            submitButton.click();
+            submitButton.style.backgroundColor = '';
+            submitButton.style.color = '';
+            submitButton.style.transform = '';
+          }, 1000);
+
           return 'clicked_submit_button';
         } else {
           form.submit();
           return 'called_form_submit';
         }
-      }, targetFormIdx);
-      this.logger.info(`Form submit result: ${submitResult}`);
+      }, analysis.bestForm.formIndex);
 
-      this.logger.info('Form filling completed');
+      this.logger.info(`🎉 Form submit result: ${submitResult}`);
+      this.logger.info('✅ AI-powered form filling completed successfully!');
+
+      await new Promise((resolve) => setTimeout(resolve, 3000));
     } catch (error) {
       if (
         error.message.includes('Execution context was destroyed') ||
@@ -439,7 +654,7 @@ export class TaskProcessorService {
         this.logger.warn('Page context destroyed during form filling');
         return;
       }
-      this.logger.error(`Error filling form: ${error.message}`);
+      this.logger.error(`Error filling form with AI: ${error.message}`, error);
     }
   }
 }
