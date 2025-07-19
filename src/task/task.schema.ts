@@ -39,6 +39,9 @@ export class Task {
   })
   status: TaskStatus;
 
+  @Prop({ type: Boolean, default: false })
+  isRunning: boolean;
+
   @Prop({ type: Object, default: { total: 0, success: 0 } })
   result: TaskResult;
 
