@@ -14,6 +14,27 @@ export class RedisService {
     private redisClient: RedisClientType,
   ) {}
 
+  async getFbclidData(fbclKey: string): Promise<string | null> {
+    return this.safeRedisCall(
+      async () => {
+        const data = await this.redisClient.lPop(fbclKey);
+        return data as string;
+      },
+      `No fbcl data found for key: ${fbclKey}`,
+      (data) => `Retrieved fbcl data: ${data}`,
+    );
+  }
+
+  async getFbclidsBatch(fbclKey: string, count: number): Promise<string[]> {
+    let data = await this.getBatch(fbclKey, count, (item) => item);
+    if (data.length < count && data.length > 0) {
+      while (data.length < count) {
+        data = data.concat(data.slice(0, count - data.length));
+      }
+    }
+    return data.slice(0, count);
+  }
+
   async getLeadData(leadKey: string): Promise<LeadData | null> {
     return this.safeRedisCall(
       async () => {
@@ -25,14 +46,11 @@ export class RedisService {
     );
   }
 
-  async getFbclidData(fbclKey: string): Promise<string | null> {
-    return this.safeRedisCall(
-      async () => {
-        const data = await this.redisClient.lPop(fbclKey);
-        return data as string;
-      },
-      `No fbcl data found for key: ${fbclKey}`,
-      (data) => `Retrieved fbcl data: ${data}`,
+  async getLeadsBatch(leadKey: string, count: number): Promise<LeadData[]> {
+    return this.getBatch(
+      leadKey,
+      count,
+      (item) => JSON.parse(item) as LeadData,
     );
   }
 
@@ -48,40 +66,18 @@ export class RedisService {
     return getRandomItem(hasNoRedisData ? USER_AGENTS : data);
   }
 
-  private async getBatch<T>(key: string, count: number, parser: (item: string) => T): Promise<T[]> {
-    const data = await this.safeRedisCall(
-      async () => {
-        const arr = await this.redisClient.lRange(key, 0, count - 1);
-        return arr as string[];
-      },
-      `No batch found for key: ${key}`,
-      (data) => `Retrieved batch: ${data}`,
-    ) as string[] | null | undefined;
-    if (!data || data.length === 0) return [];
-    return data.map(parser);
-  }
-
-  async getLeadsBatch(leadKey: string, count: number): Promise<LeadData[]> {
-    return this.getBatch(leadKey, count, (item) => JSON.parse(item) as LeadData);
-  }
-
-  async getFbclidsBatch(fbclKey: string, count: number): Promise<string[]> {
-    let data = await this.getBatch(fbclKey, count, (item) => item);
-    if (data.length < count && data.length > 0) {
-      while (data.length < count) {
-        data = data.concat(data.slice(0, count - data.length));
-      }
-    }
-    return data.slice(0, count);
-  }
-
-  async getUserAgentsBatch(userAgentKey: string, count: number): Promise<string[]> {
+  async getUserAgentsBatch(
+    userAgentKey: string,
+    count: number,
+  ): Promise<string[]> {
     let data = await this.getBatch(userAgentKey, count, (item) => item);
     if (!data || data.length === 0) {
       data = Array.from({ length: count }, () => getRandomItem(USER_AGENTS));
     } else if (data.length < count) {
       const needed = count - data.length;
-      const extra = Array.from({ length: needed }, () => getRandomItem(USER_AGENTS));
+      const extra = Array.from({ length: needed }, () =>
+        getRandomItem(USER_AGENTS),
+      );
       data = data.concat(extra);
     }
     if (data.length < count) {
@@ -90,6 +86,23 @@ export class RedisService {
       }
     }
     return data.slice(0, count);
+  }
+
+  private async getBatch<T>(
+    key: string,
+    count: number,
+    parser: (item: string) => T,
+  ): Promise<T[]> {
+    const data = (await this.safeRedisCall(
+      async () => {
+        const arr = await this.redisClient.lRange(key, 0, count - 1);
+        return arr as string[];
+      },
+      `No batch found for key: ${key}`,
+      (data) => `Retrieved batch: ${data}`,
+    )) as string[] | null | undefined;
+    if (!data || data.length === 0) return [];
+    return data.map(parser);
   }
 
   private async safeRedisCall<T>(
