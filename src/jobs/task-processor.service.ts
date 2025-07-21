@@ -1,16 +1,63 @@
-import { CountryCode } from '@enums';
+import { CountryCode, TaskStatus } from '@enums';
 import { GeoProfile } from '@geo-profile/geo-profile.schema';
 import { LeadData } from '@interfaces';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Task } from '@task/task.schema';
-import { getRandomItem, LogWrapper } from '@utils';
+import { LogWrapper } from '@utils';
+import { getRandomItem } from '@utils';
 import { Model } from 'mongoose';
 import { Page } from 'puppeteer';
 
 import { AIService } from '../ai/ai.service';
 import { PuppeteerService } from '../puppeteer/puppeteer.service';
 import { RedisService } from '../redis/redis.service';
+
+// Семафор для контроля количества одновременно выполняющихся задач
+class Semaphore {
+  private permits: number;
+  private waitQueue: Array<() => void> = [];
+
+  constructor(permits: number) {
+    this.permits = permits;
+  }
+
+  async acquire(): Promise<void> {
+    if (this.permits > 0) {
+      this.permits--;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.waitQueue.push(resolve);
+    });
+  }
+
+  release(): void {
+    if (this.waitQueue.length > 0) {
+      const resolve = this.waitQueue.shift()!;
+      resolve();
+    } else {
+      this.permits++;
+    }
+  }
+}
+
+// Добавляю функцию-обёртку для таймаута
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  onTimeout: () => void,
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => {
+        onTimeout();
+        reject(new Error('Task timed out'));
+      }, ms),
+    ),
+  ]);
+}
 
 @Injectable()
 export class TaskProcessorService {
@@ -24,46 +71,168 @@ export class TaskProcessorService {
     private readonly aiService: AIService,
   ) {}
 
-  async processRandomTask(): Promise<void> {
+  async processAllActiveTasks(): Promise<void> {
     try {
-      const mockTaskId = '686804a08e868743ae0316ad';
-      const taskId = mockTaskId;
+      const activeTasks = await this.taskModel
+        .find({ status: TaskStatus.ACTIVE })
+        .exec();
 
-      this.logger.info(`Processing task with ID: ${taskId}`);
+      this.logger.info(`Found ${activeTasks.length} active tasks to process`);
 
+      for (const task of activeTasks) {
+        void this.processTasks(task._id.toString()).catch((e) => {
+          this.logger.error(`Error processing task ${task._id}: ${e.message}`);
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error processing active tasks: ${error.message}`,
+        error,
+      );
+    }
+  }
+
+  async processTasks(taskId: string): Promise<void> {
+    try {
       const task = await this.taskModel.findById(taskId).exec();
+
       if (!task) {
         this.logger.error(`Task with ID ${taskId} not found`);
         return;
       }
 
-      this.logger.info(`Found task: ${task.url}, geo: ${task.geo}`);
+      if (task.isRunning) {
+        this.logger.warn(`Task ${taskId} is already running, skipping`);
+        return;
+      }
 
-      const profile = await this.geoProfileModel
-        .findById(task.profileId)
-        .exec();
+      task.isRunning = true;
+      await task.save();
+
+      try {
+        await this.processTask(task);
+      } finally {
+        task.isRunning = false;
+        await task.save();
+      }
+    } catch (error) {
+      this.logger.error(`Error processing task: ${error.message}`, error);
+    }
+  }
+
+  private async processTask({ _id, url, profileId, geo }): Promise<void> {
+    try {
+      const profile = await this.geoProfileModel.findById(profileId).exec();
+
       if (!profile) {
-        this.logger.error(`Profile with ID ${task.profileId} not found`);
+        this.logger.error(`Profile with ID ${profileId} not found`);
         return;
       }
 
       const { leadKey, fbclidKey, userAgentKey } = profile;
-      const leadData = await this.redisService.getLeadData(leadKey);
-      // TODO:delete after testing
-      // leadData = {
-      //   ...leadData,
-      //   phone: leadData.email,
-      //   email: leadData.phone,
-      // };
-      // END
-      const userAgents =
-        await this.redisService.getUserAgentsData(userAgentKey);
-      const fbclid = await this.redisService.getFbclidData(fbclidKey);
+      const MAX_TABS = Number(process.env.MAX_TABS_PER_BROWSER) || 15;
 
-      const url = task.url + '?&fbclid=' + fbclid;
-      const userAgent = getRandomItem(userAgents);
+      let iterations = 0;
+      let processedCount = 0;
 
-      await this.runPuppeteerTask(url, task.geo, leadData, userAgent);
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const leads =
+          (await this.redisService.getLeadsBatch(leadKey, MAX_TABS)) || [];
+
+        if (leads.length === 0) {
+          this.logger.info('No more leads available...');
+          await new Promise((resolve) => setTimeout(resolve, 30000));
+          break;
+        }
+
+        const userAgents =
+          (await this.redisService.getUserAgentsBatch(
+            userAgentKey,
+            MAX_TABS,
+          )) || [];
+        const fbclids =
+          (await this.redisService.getFbclidsBatch(fbclidKey, MAX_TABS)) || [];
+
+        if (!userAgents.length) {
+          this.logger.warn('No userAgents found for this batch');
+        }
+        if (!fbclids.length) {
+          this.logger.warn('No fbclids found for this batch');
+        }
+
+        const shuffledLeads = leads.sort(() => Math.random() - 0.5);
+        this.logger.info(
+          `Processing batch ${iterations + 1}: ${leads.length} leads`,
+        );
+
+        const TIMEOUT_MS = 3 * 60 * 1000;
+        const semaphore = new Semaphore(50); // Ограничение на 50 одновременно выполняющихся задач
+        const activeTasks: Promise<void>[] = [];
+
+        for (let index = 0; index < shuffledLeads.length; index++) {
+          const leadData = shuffledLeads[index];
+          const userAgent = getRandomItem(userAgents);
+          const fbclid = getRandomItem(fbclids);
+          const finalUrl = url + '?&fbclid=' + (fbclid || 'null');
+
+          this.logger.info(
+            `Processing lead ${processedCount + index + 1}: ${JSON.stringify(leadData)}`,
+          );
+
+          this.logger.info(`Using userAgent: ${userAgent}, fbclid: ${fbclid}`);
+
+          // Получаем разрешение от семафора перед запуском задачи
+          await semaphore.acquire();
+
+          const taskPromise = withTimeout(
+            this.runPuppeteerTask(finalUrl, geo, leadData, userAgent),
+            TIMEOUT_MS,
+            () => this.logger.error('Task timed out, closing slot'),
+          ).catch((e) =>
+            this.logger.error(`Error processing lead: ${e.message}`),
+          ).finally(() => {
+            // Освобождаем разрешение после завершения задачи
+            semaphore.release();
+          });
+          
+          // Запускаем задачу независимо, не ждём завершения
+          activeTasks.push(taskPromise);
+          
+          // Удаляем завершённые задачи из массива
+          activeTasks.forEach((task, i) => {
+            if (task.then) {
+              task.then(() => {
+                const idx = activeTasks.indexOf(task);
+                if (idx > -1) {
+                  activeTasks.splice(idx, 1);
+                }
+              }).catch(() => {
+                const idx = activeTasks.indexOf(task);
+                if (idx > -1) {
+                  activeTasks.splice(idx, 1);
+                }
+              });
+            }
+          });
+        }
+        
+        // Ждём завершения только если не все задачи батча были запущены (например, если batch.length > 0 и activeTasks.length < shuffledLeads.length)
+        if (activeTasks.length < shuffledLeads.length && activeTasks.length > 0) {
+          await Promise.allSettled(activeTasks);
+        }
+
+        iterations++;
+        processedCount += leads.length;
+
+        this.logger.info(
+          `Completed batch ${iterations}. Total processed: ${processedCount}`,
+        );
+      }
+
+      this.logger.info(
+        `Task ${_id} completed. Processed ${processedCount} leads in ${iterations} iterations`,
+      );
     } catch (error) {
       this.logger.error(`Error processing task: ${error.message}`, error);
     }
@@ -75,6 +244,7 @@ export class TaskProcessorService {
     leadData: LeadData,
     userAgent: string,
   ): Promise<void> {
+    console.log(`Running Puppeteer task for URL: ${url}, Geo: ${geo}`);
     let page: Page | null = null;
 
     try {
@@ -98,14 +268,11 @@ export class TaskProcessorService {
       await this.safeExecute(page, () => this.simulateRandomClicks(page));
       await this.safeExecute(page, () => this.findAndOpenForm(page));
       await this.safeExecute(page, () => this.fillFormWithData(page, leadData));
-
-      this.logger.info('Waiting 5 seconds before closing...');
-      await new Promise((resolve) => setTimeout(resolve, 5000));
     } catch (error) {
       this.logger.error(`Error in Puppeteer task: ${error.message}`, error);
     } finally {
       if (page && !page.isClosed()) {
-        await this.puppeteerService.releasePage(page);
+        await this.puppeteerService.releasePage(page, geo as CountryCode);
       }
     }
   }
