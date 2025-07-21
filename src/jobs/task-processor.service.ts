@@ -13,7 +13,6 @@ import { AIService } from '../ai/ai.service';
 import { PuppeteerService } from '../puppeteer/puppeteer.service';
 import { RedisService } from '../redis/redis.service';
 
-// Семафор для контроля количества одновременно выполняющихся задач
 class Semaphore {
   private permits: number;
   private waitQueue: Array<() => void> = [];
@@ -42,7 +41,6 @@ class Semaphore {
   }
 }
 
-// Добавляю функцию-обёртку для таймаута
 function withTimeout<T>(
   promise: Promise<T>,
   ms: number,
@@ -167,7 +165,7 @@ export class TaskProcessorService {
         );
 
         const TIMEOUT_MS = 3 * 60 * 1000;
-        const semaphore = new Semaphore(50); // Ограничение на 50 одновременно выполняющихся задач
+        const semaphore = new Semaphore(50);
         const activeTasks: Promise<void>[] = [];
 
         for (let index = 0; index < shuffledLeads.length; index++) {
@@ -182,43 +180,45 @@ export class TaskProcessorService {
 
           this.logger.info(`Using userAgent: ${userAgent}, fbclid: ${fbclid}`);
 
-          // Получаем разрешение от семафора перед запуском задачи
           await semaphore.acquire();
 
           const taskPromise = withTimeout(
-            this.runPuppeteerTask(finalUrl, geo, leadData, userAgent),
+            this.runPuppeteerTask(finalUrl, geo, leadData, userAgent, false),
             TIMEOUT_MS,
             () => this.logger.error('Task timed out, closing slot'),
-          ).catch((e) =>
-            this.logger.error(`Error processing lead: ${e.message}`),
-          ).finally(() => {
-            // Освобождаем разрешение после завершения задачи
-            semaphore.release();
-          });
-          
-          // Запускаем задачу независимо, не ждём завершения
+          )
+            .catch((e) =>
+              this.logger.error(`Error processing lead: ${e.message}`),
+            )
+            .finally(() => {
+              semaphore.release();
+            });
+
           activeTasks.push(taskPromise);
-          
-          // Удаляем завершённые задачи из массива
-          activeTasks.forEach((task, i) => {
+
+          activeTasks.forEach((task) => {
             if (task.then) {
-              task.then(() => {
-                const idx = activeTasks.indexOf(task);
-                if (idx > -1) {
-                  activeTasks.splice(idx, 1);
-                }
-              }).catch(() => {
-                const idx = activeTasks.indexOf(task);
-                if (idx > -1) {
-                  activeTasks.splice(idx, 1);
-                }
-              });
+              task
+                .then(() => {
+                  const idx = activeTasks.indexOf(task);
+                  if (idx > -1) {
+                    activeTasks.splice(idx, 1);
+                  }
+                })
+                .catch(() => {
+                  const idx = activeTasks.indexOf(task);
+                  if (idx > -1) {
+                    activeTasks.splice(idx, 1);
+                  }
+                });
             }
           });
         }
-        
-        // Ждём завершения только если не все задачи батча были запущены (например, если batch.length > 0 и activeTasks.length < shuffledLeads.length)
-        if (activeTasks.length < shuffledLeads.length && activeTasks.length > 0) {
+
+        if (
+          activeTasks.length < shuffledLeads.length &&
+          activeTasks.length > 0
+        ) {
           await Promise.allSettled(activeTasks);
         }
 
@@ -243,6 +243,7 @@ export class TaskProcessorService {
     geo: string,
     leadData: LeadData,
     userAgent: string,
+    humanize = false,
   ): Promise<void> {
     console.log(`Running Puppeteer task for URL: ${url}, Geo: ${geo}`);
     let page: Page | null = null;
@@ -259,15 +260,25 @@ export class TaskProcessorService {
 
       await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
 
+      await new Promise((resolve) =>
+        setTimeout(resolve, 2000 + Math.random() * 3000),
+      );
+
       if (page.isClosed()) {
         this.logger.warn('Page was closed during navigation');
         return;
       }
 
-      await this.safeExecute(page, () => this.simulateScrolling(page));
-      await this.safeExecute(page, () => this.simulateRandomClicks(page));
+      await this.safeExecute(page, () =>
+        this.simulateScrolling(page, humanize),
+      );
+      await this.safeExecute(page, () =>
+        this.simulateRandomClicks(page, humanize),
+      );
       await this.safeExecute(page, () => this.findAndOpenForm(page));
-      await this.safeExecute(page, () => this.fillFormWithData(page, leadData));
+      await this.safeExecute(page, () =>
+        this.fillFormWithData(page, leadData, humanize),
+      );
     } catch (error) {
       this.logger.error(`Error in Puppeteer task: ${error.message}`, error);
     } finally {
@@ -300,7 +311,7 @@ export class TaskProcessorService {
     }
   }
 
-  private async simulateScrolling(page: Page): Promise<void> {
+  private async simulateScrolling(page: Page, humanize = false): Promise<void> {
     this.logger.info('Simulating natural scrolling...');
 
     if (page.isClosed()) {
@@ -330,11 +341,25 @@ export class TaskProcessorService {
           });
         }, scrollAmount);
 
-        const pauseTime = Math.floor(Math.random() * 300) + 200;
+        const pauseTime = 800 + Math.random() * 1200;
         await new Promise((resolve) => setTimeout(resolve, pauseTime));
+
+        if (humanize && Math.random() < 0.2) {
+          await page.evaluate(() => {
+            window.scrollBy({
+              top: -100 - Math.random() * 200,
+              behavior: 'smooth',
+            });
+          });
+          await new Promise((resolve) =>
+            setTimeout(resolve, 500 + Math.random() * 700),
+          );
+        }
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) =>
+        setTimeout(resolve, 1000 + Math.random() * 1000),
+      );
 
       if (!page.isClosed()) {
         await page.evaluate(() => {
@@ -343,7 +368,9 @@ export class TaskProcessorService {
             behavior: 'smooth',
           });
         });
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await new Promise((resolve) =>
+          setTimeout(resolve, 1500 + Math.random() * 1000),
+        );
       }
 
       this.logger.info('Natural scrolling completed');
@@ -356,7 +383,10 @@ export class TaskProcessorService {
     }
   }
 
-  private async simulateRandomClicks(page: Page): Promise<void> {
+  private async simulateRandomClicks(
+    page: Page,
+    humanize = false,
+  ): Promise<void> {
     this.logger.info('Simulating natural clicks and navigation...');
 
     if (page.isClosed()) {
@@ -398,6 +428,29 @@ export class TaskProcessorService {
 
       this.logger.info(`Found ${clickableElements.length} clickable elements`);
 
+      if (humanize && clickableElements.length > 0) {
+        const randomClicks = Math.floor(Math.random() * 2) + 1;
+        for (let i = 0; i < randomClicks; i++) {
+          const el =
+            clickableElements[
+              Math.floor(Math.random() * clickableElements.length)
+            ];
+          this.logger.info(
+            `(Humanize) Randomly clicking on ${el.tagName}: "${el.text}" (${el.href})`,
+          );
+          await page.evaluate(
+            (selector) => {
+              const el = document.querySelector(selector) as HTMLElement;
+              if (el) el.click();
+            },
+            `${el.tagName}${el.href ? `[href="${el.href}"]` : ''}`,
+          );
+          await new Promise((resolve) =>
+            setTimeout(resolve, 1200 + Math.random() * 2000),
+          );
+        }
+      }
+
       const elementsToClick = clickableElements
         .filter((el) => {
           const href = el.href.toLowerCase();
@@ -430,7 +483,7 @@ export class TaskProcessorService {
           );
 
           await new Promise((resolve) =>
-            setTimeout(resolve, 2000 + Math.random() * 3000),
+            setTimeout(resolve, 2500 + Math.random() * 2500),
           );
 
           if (element.href && !element.href.startsWith('#')) {
@@ -442,7 +495,7 @@ export class TaskProcessorService {
               });
 
             await new Promise((resolve) =>
-              setTimeout(resolve, 3000 + Math.random() * 5000),
+              setTimeout(resolve, 4000 + Math.random() * 5000),
             );
           }
         } catch (error) {
@@ -548,6 +601,7 @@ export class TaskProcessorService {
   private async fillFormWithData(
     page: Page,
     leadData: LeadData,
+    humanize = false,
   ): Promise<void> {
     this.logger.info('Filling form with lead data using AI analysis...');
     this.logger.info(`Available lead data: ${JSON.stringify(leadData)}`);
@@ -564,7 +618,9 @@ export class TaskProcessorService {
           forms[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       });
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) =>
+        setTimeout(resolve, 1000 + Math.random() * 1000),
+      );
 
       const formsHtml = await this.aiService.extractFormHtml(page);
 
@@ -594,7 +650,9 @@ export class TaskProcessorService {
           form.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       }, analysis.bestForm.formIndex);
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) =>
+        setTimeout(resolve, 1500 + Math.random() * 1000),
+      );
 
       for (const field of analysis.bestForm.fields) {
         if (page.isClosed()) {
@@ -630,50 +688,55 @@ export class TaskProcessorService {
               element.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
           }, field.selector);
-          await new Promise((resolve) => setTimeout(resolve, 500));
-
-          const success = await page.evaluate(
-            (selector, value) => {
-              const element = document.querySelector(
-                selector,
-              ) as HTMLInputElement;
-              if (element) {
-                element.focus();
-                element.value = '';
-                element.dispatchEvent(new Event('input', { bubbles: true }));
-
-                let currentValue = '';
-                const typeSpeed = 250 + Math.random() * 100;
-
-                const typeNextChar = () => {
-                  if (currentValue.length < value.length) {
-                    currentValue += value[currentValue.length];
-                    element.value = currentValue;
-
-                    setTimeout(typeNextChar, typeSpeed);
-                  }
-                };
-
-                setTimeout(typeNextChar, 100);
-                return true;
-              }
-              return false;
-            },
-            field.selector,
-            value,
-            field.type,
+          await new Promise((resolve) =>
+            setTimeout(resolve, 500 + Math.random() * 500),
           );
 
-          if (success) {
-            this.logger.info(
-              `✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
-            );
-
-            const pauseTime = 300 + Math.random() * 700;
-            await new Promise((resolve) => setTimeout(resolve, pauseTime));
+          if (humanize) {
+            for (let i = 0; i < value.length; i++) {
+              await page.evaluate(
+                (selector, char) => {
+                  const element = document.querySelector(
+                    selector,
+                  ) as HTMLInputElement;
+                  if (element) {
+                    element.focus();
+                    element.value += char;
+                    element.dispatchEvent(
+                      new Event('input', { bubbles: true }),
+                    );
+                  }
+                },
+                field.selector,
+                value[i],
+              );
+              await new Promise((resolve) =>
+                setTimeout(resolve, 120 + Math.random() * 180),
+              );
+            }
           } else {
-            this.logger.warn(`❌ Failed to find field ${field.selector}`);
+            await page.evaluate(
+              (selector, value) => {
+                const element = document.querySelector(
+                  selector,
+                ) as HTMLInputElement;
+                if (element) {
+                  element.focus();
+                  element.value = value;
+                  element.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+              },
+              field.selector,
+              value,
+            );
           }
+
+          this.logger.info(
+            `✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
+          );
+
+          const pauseTime = 600 + Math.random() * 1200;
+          await new Promise((resolve) => setTimeout(resolve, pauseTime));
         } catch (error) {
           this.logger.warn(
             `Failed to fill field ${field.selector}: ${error.message}`,
@@ -683,7 +746,7 @@ export class TaskProcessorService {
 
       this.logger.info('All fields filled, preparing to submit form...');
       await new Promise((resolve) =>
-        setTimeout(resolve, 1000 + Math.random() * 1000),
+        setTimeout(resolve, 2000 + Math.random() * 2000),
       );
 
       const submitResult = await page.evaluate((formIndex) => {
@@ -696,13 +759,21 @@ export class TaskProcessorService {
         ) as HTMLButtonElement | HTMLInputElement;
 
         if (submitButton && submitButton.offsetParent !== null) {
-          setTimeout(() => {
-            submitButton.click();
-          }, 1000);
+          setTimeout(
+            () => {
+              submitButton.click();
+            },
+            1000 + Math.random() * 1000,
+          );
 
           return 'clicked_submit_button';
         } else {
-          form.submit();
+          setTimeout(
+            () => {
+              form.submit();
+            },
+            1000 + Math.random() * 1000,
+          );
           return 'called_form_submit';
         }
       }, analysis.bestForm.formIndex);
