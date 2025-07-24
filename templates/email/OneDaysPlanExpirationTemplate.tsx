@@ -1,4 +1,4 @@
-import { PlanPayloadStrict } from "@interfaces";
+import { PlanPayloadStrict } from '@interfaces';
 import {
   Body,
   Font,
@@ -7,8 +7,8 @@ import {
   Preview,
   Tailwind,
   Text,
-} from "@react-email/components";
-import * as React from "react";
+} from '@react-email/components';
+import * as React from 'react';
 
 export function OneDayPlanExpirationTemplate(plan: PlanPayloadStrict) {
   const { name, endAt } = plan;
@@ -25,8 +25,8 @@ export function OneDayPlanExpirationTemplate(plan: PlanPayloadStrict) {
         fontFamily="Roboto"
         fallbackFontFamily="Verdana"
         webFont={{
-          url: "https://fonts.gstatic.com/s/roboto/v27/KFOmCnqEu92Fr1Mu4mxKKTU1Kg.woff2",
-          format: "woff2",
+          url: 'https://fonts.gstatic.com/s/roboto/v27/KFOmCnqEu92Fr1Mu4mxKKTU1Kg.woff2',
+          format: 'woff2',
         }}
         fontWeight={400}
         fontStyle="normal"

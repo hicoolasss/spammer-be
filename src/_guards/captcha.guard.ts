@@ -4,11 +4,11 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
-} from "@nestjs/common";
-import { LogWrapper } from "@utils/LogWrapper";
-import axios from "axios";
-import { Request } from "express";
-import * as qs from "querystring";
+} from '@nestjs/common';
+import { LogWrapper } from '@utils';
+import axios from 'axios';
+import { Request } from 'express';
+import * as qs from 'querystring';
 
 @Injectable()
 export class CaptchaGuard implements CanActivate {
@@ -18,11 +18,11 @@ export class CaptchaGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request>();
 
     const captchaToken =
-      request.body?.captchaToken || request.headers["captcha-token"];
+      request.body?.captchaToken || request.headers['captcha-token'];
 
     if (!captchaToken) {
-      await this.logger.warn("🚨 Captcha token is missing in request.");
-      throw new BadRequestException("Captcha verification required.");
+      await this.logger.warn('🚨 Captcha token is missing in request.');
+      throw new BadRequestException('Captcha verification required.');
     }
 
     await this.logger.info(`🔍 Verifying captcha`);
@@ -30,7 +30,7 @@ export class CaptchaGuard implements CanActivate {
     const isValid = await this.verifyCaptcha(captchaToken);
     if (!isValid) {
       await this.logger.warn(`❌ Captcha verification failed`);
-      throw new ForbiddenException("Captcha verification failed.");
+      throw new ForbiddenException('Captcha verification failed.');
     }
 
     await this.logger.info(`✅ Captcha verification passed`);
@@ -43,7 +43,7 @@ export class CaptchaGuard implements CanActivate {
 
       if (!secret) {
         await this.logger.error(
-          "❌ CLOUDFLARE_SECRET_KEY is missing in environment variables!"
+          '❌ CLOUDFLARE_SECRET_KEY is missing in environment variables!',
         );
         return false;
       }
@@ -53,25 +53,25 @@ export class CaptchaGuard implements CanActivate {
       });
 
       const response = await axios.post(
-        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+        'https://challenges.cloudflare.com/turnstile/v0/siteverify',
         formData,
         {
           headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
+            'Content-Type': 'application/x-www-form-urlencoded',
           },
-        }
+        },
       );
 
       if (!response.data.success) {
         await this.logger.warn(
-          `🚨 Cloudflare CAPTCHA validation failed. Response: ${JSON.stringify(response.data)}`
+          `🚨 Cloudflare CAPTCHA validation failed. Response: ${JSON.stringify(response.data)}`,
         );
         return false;
       }
 
       return true;
     } catch (error) {
-      await this.logger.error("❌ CAPTCHA validation error:", error.message);
+      await this.logger.error('❌ CAPTCHA validation error:', error.message);
       return false;
     }
   }

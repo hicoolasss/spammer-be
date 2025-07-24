@@ -1,4 +1,4 @@
-import { EmailTemplate } from "src/enums/email.enums";
+import { EmailTemplate } from 'src/enums/email.enums';
 
 export interface PlanPayloadStrict {
   name: string;

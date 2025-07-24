@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
     "declaration": true,
     "removeComments": true,
     "emitDecoratorMetadata": true,
@@ -23,7 +24,6 @@
       "@_decorators": ["src/_decorators/index"],
       "@_guards": ["src/_guards/index"],
       "@_helpers/*": ["src/_helpers/*"],
-      "@_lib/*": ["src/_lib/*"],
       "@_middlewares": ["src/_middlewares/index"],
       "@admin/*": ["src/admin/*"],
       "@ai/*": ["src/ai/*"],
@@ -32,11 +32,14 @@
       "@cookie/*": ["src/cookie/*"],
       "@email/*": ["src/email/*"],
       "@enums": ["src/enums/index"],
+      "@geo-profile/*": ["src/geo-profile/*"],
       "@interfaces": ["src/interfaces/index"],
+      "@redis/*": ["src/redis/*"],
+      "@task/*": ["src/task/*"],
       "@token/*": ["src/token/*"],
+      "@types": ["src/types/index"],
       "@user/*": ["src/user/*"],
-      "@utils/*": ["src/utils/*"],
-      "@validations": ["src/validations/index"],
+      "@utils": ["src/utils/index"]
     }
   }
 }

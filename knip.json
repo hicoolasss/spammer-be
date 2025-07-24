@@ -1,0 +1,22 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": ["src/main.ts"],
+  "project": ["**/*.{ts,js}", "ecosystem.config.js"],
+  "ignoreDependencies": [
+    "lint-staged"
+  ],
+  "ignoreBinaries": [
+    "prettier",
+    "jest"
+  ],
+  "ignoreWorkspaces": [],
+  "rules": {
+    "dependencies": "error",
+    "devDependencies": "error",
+    "exports": "error",
+    "files": "error",
+    "nsExports": "error",
+    "types": "error",
+    "unlisted": "error"
+  }
+} 

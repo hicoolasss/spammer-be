@@ -1,14 +1,14 @@
-import { Module } from "@nestjs/common";
-import { JwtService } from "@nestjs/jwt";
-import { MongooseModule } from "@nestjs/mongoose";
-import { TokenService } from "@token/token.service";
+import { Module } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { MongooseModule } from '@nestjs/mongoose';
+import { TokenService } from '@token/token.service';
 
-import { EmailToken, EmailTokenSchema } from "./emailToken.schema";
-import { EmailProvider } from "./providers/email.provider";
+import { EmailToken, EmailTokenSchema } from './emailToken.schema';
+import { EmailProvider } from './providers/email.provider';
 import {
   ResetPasswordToken,
   ResetPasswordTokenSchema,
-} from "./resetPasswordToken.schema";
+} from './resetPasswordToken.schema';
 
 @Module({
   imports: [
@@ -20,5 +20,4 @@ import {
   providers: [EmailProvider, JwtService, TokenService],
   exports: [EmailProvider],
 })
-
 export class EmailModule {}

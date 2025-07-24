@@ -1,11 +1,11 @@
-import * as dotenv from "dotenv";
+import * as dotenv from 'dotenv';
 dotenv.config();
-import { ValidationPipe } from "@nestjs/common";
-import { NestFactory } from "@nestjs/core";
-import * as cookieParser from "cookie-parser";
-import * as express from "express";
+import { ValidationPipe } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import cookieParser from 'cookie-parser';
+import * as express from 'express';
 
-import { AppModule } from "./app.module";
+import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -18,14 +18,14 @@ async function bootstrap() {
     credentials: true,
   });
 
-  app.use("/webhooks", express.raw({ type: "application/json" }));
+  app.use('/webhooks', express.raw({ type: 'application/json' }));
   app.use(express.json());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-    })
+    }),
   );
   app.use(cookieParser());
   app.enableShutdownHooks();

@@ -1,24 +1,24 @@
-import { CookieService } from "@cookie/cookie.service";
-import { TokenService } from "@token/token.service";
-import { LogWrapper } from "@utils/LogWrapper";
-import { NextFunction, Request, Response } from "express";
+import { CookieService } from '@cookie/cookie.service';
+import { TokenService } from '@token/token.service';
+import { LogWrapper } from '@utils';
+import { NextFunction, Request, Response } from 'express';
 
-import { RefreshTokenMiddleware } from "./refresh-token.middleware";
+import { RefreshTokenMiddleware } from './refresh-token.middleware';
 
 export function combinedMiddleware(
   cookieService: CookieService,
-  tokenService: TokenService
+  tokenService: TokenService,
 ) {
-  const logger = new LogWrapper("CombinedMiddleware");
+  const logger = new LogWrapper('CombinedMiddleware');
   const refreshTokenMiddleware = new RefreshTokenMiddleware(
     cookieService,
-    tokenService
+    tokenService,
   );
 
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       await logger.info(
-        `Request received. IP: ${req.ip}, ${req.headers["x-forwarded-for"]}, ${req.connection.remoteAddress}`
+        `Request received. IP: ${req.ip}, ${req.headers['x-forwarded-for']}, ${req.connection.remoteAddress}`,
       );
 
       await new Promise<void>((resolve, reject) =>
@@ -29,12 +29,12 @@ export function combinedMiddleware(
           } else {
             resolve();
           }
-        })
+        }),
       );
 
       return next();
     } catch (error) {
-      await logger.error("Failed combinedMiddleware.", error);
+      await logger.error('Failed combinedMiddleware.', error);
       next(error);
     }
   };

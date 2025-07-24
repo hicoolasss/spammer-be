@@ -1,5 +1,5 @@
 export enum GlobalRoles {
-  ADMIN = "admin",
-  USER = "user",
-  ADVERTISER = "advertiser",
+  ADMIN = 'admin',
+  USER = 'user',
+  ADVERTISER = 'advertiser',
 }

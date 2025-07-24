@@ -1,5 +1,5 @@
-import { GlobalRoles, SubscriptionPlan } from "@enums";
-import { IsEmail, IsIn, IsOptional } from "class-validator";
+import { GlobalRoles, SubscriptionPlan } from '@enums';
+import { IsEmail, IsIn, IsOptional } from 'class-validator';
 
 export class UserDto {
   @IsOptional()

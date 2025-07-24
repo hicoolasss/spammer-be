@@ -1,7 +1,7 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
-import { PassportStrategy } from "@nestjs/passport";
-import { Request } from "express";
-import { ExtractJwt, Strategy } from "passport-jwt";
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { PassportStrategy } from '@nestjs/passport';
+import { Request } from 'express';
+import { ExtractJwt, Strategy } from 'passport-jwt';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -11,7 +11,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         (req: Request) => {
           const token = req?.cookies?.accessToken;
           if (!token) {
-            throw new UnauthorizedException("Token not found in cookies");
+            throw new UnauthorizedException('Token not found in cookies');
           }
           return token;
         },

@@ -6,8 +6,8 @@ import {
   Preview,
   Tailwind,
   Text,
-} from "@react-email/components";
-import * as React from "react";
+} from '@react-email/components';
+import * as React from 'react';
 
 export function ResetPasswordTemplate(link: string) {
   return (
@@ -18,8 +18,8 @@ export function ResetPasswordTemplate(link: string) {
         fontFamily="Inter"
         fallbackFontFamily="Arial"
         webFont={{
-          url: "https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff2",
-          format: "woff2",
+          url: 'https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff2',
+          format: 'woff2',
         }}
         fontWeight={400}
         fontStyle="normal"

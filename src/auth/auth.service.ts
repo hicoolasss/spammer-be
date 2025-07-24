@@ -1,9 +1,10 @@
-import { CookieService } from "@cookie/cookie.service";
-import { EmailToken, EmailTokenDocument } from "@email/emailToken.schema";
+import { telegramRegex } from '@consts';
+import { CookieService } from '@cookie/cookie.service';
+import { EmailToken, EmailTokenDocument } from '@email/emailToken.schema';
 import {
   ResetPasswordToken,
   ResetPasswordTokenDocument,
-} from "@email/resetPasswordToken.schema";
+} from '@email/resetPasswordToken.schema';
 import {
   BadRequestException,
   ConflictException,
@@ -12,21 +13,20 @@ import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
-} from "@nestjs/common";
-import { InjectModel } from "@nestjs/mongoose";
-import { TokenService } from "@token/token.service";
-import { UserDto } from "@user/dto/user.dto";
-import { UserDocument } from "@user/user.schema";
-import { UserService } from "@user/user.service";
-import { LogWrapper } from "@utils/LogWrapper";
-import * as bcrypt from "bcryptjs";
-import { Response } from "express";
-import { Model } from "mongoose";
-import { EmailProvider } from "src/email/providers/email.provider";
-import { telegramRegex } from "src/validations/consts";
+} from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { TokenService } from '@token/token.service';
+import { UserDto } from '@user/dto/user.dto';
+import { UserDocument } from '@user/user.schema';
+import { UserService } from '@user/user.service';
+import { LogWrapper } from '@utils';
+import * as bcrypt from 'bcryptjs';
+import { Response } from 'express';
+import { Model } from 'mongoose';
+import { EmailProvider } from 'src/email/providers/email.provider';
 
-import { SignInDto, SignUpDto } from "./dto/index.dto";
-import { AuthErrorCode } from "./errors/auth-error-codes";
+import { SignInDto, SignUpDto } from './dto/index.dto';
+import { AuthErrorCode } from './errors/auth-error-codes';
 
 @Injectable()
 export class AuthService {
@@ -41,7 +41,7 @@ export class AuthService {
     private readonly resetPasswordTokenModel: Model<ResetPasswordTokenDocument>,
     private readonly CookieService: CookieService,
     private readonly EmailProvider: EmailProvider,
-    private readonly TokenService: TokenService
+    private readonly TokenService: TokenService,
   ) {}
 
   //TODO: handle telegram duplicates
@@ -51,7 +51,7 @@ export class AuthService {
       if (exists) {
         throw new ConflictException({
           errorCode: AuthErrorCode.EMAIL_EXISTS,
-          message: "A user with this email already exists",
+          message: 'A user with this email already exists',
         });
       }
 
@@ -65,7 +65,7 @@ export class AuthService {
 
   async refresh(
     refreshToken: string,
-    res: Response
+    res: Response,
   ): Promise<{ accessToken: string; refreshToken: string }> {
     try {
       const userId = await this.TokenService.verifyRefreshToken(refreshToken);
@@ -73,7 +73,7 @@ export class AuthService {
       const user: UserDocument | null = await this.UserService.findById(userId);
 
       if (!user) {
-        throw new UnauthorizedException("User not found or token expired");
+        throw new UnauthorizedException('User not found or token expired');
       }
 
       const { accessToken, refreshToken: newRefreshToken } =
@@ -83,7 +83,7 @@ export class AuthService {
         await this.TokenService.hashRefreshToken(newRefreshToken);
       await this.UserService.updateRefreshToken(
         user._id.toString(),
-        hashedRefreshToken
+        hashedRefreshToken,
       );
       this.CookieService.setAuthCookies(res, accessToken, newRefreshToken);
 
@@ -103,7 +103,7 @@ export class AuthService {
       if (!ok) {
         throw new UnauthorizedException({
           errorCode: AuthErrorCode.INVALID_CREDENTIALS,
-          message: "Invalid credentials",
+          message: 'Invalid credentials',
         });
       }
 
@@ -117,7 +117,7 @@ export class AuthService {
         await this.TokenService.hashRefreshToken(refreshToken);
       await this.UserService.updateRefreshToken(
         current._id.toString(),
-        hashedRefreshToken
+        hashedRefreshToken,
       );
       this.CookieService.setAuthCookies(res, accessToken, refreshToken);
 
@@ -140,11 +140,11 @@ export class AuthService {
         await this.UserService.findByEmail(email);
 
       if (!user) {
-        throw new NotFoundException("User not found");
+        throw new NotFoundException('User not found');
       }
 
       if (user.emailVerified) {
-        throw new ConflictException("User already verified");
+        throw new ConflictException('User already verified');
       }
 
       const userId = user._id.toString();
@@ -156,13 +156,13 @@ export class AuthService {
 
       const token = await this.TokenService.generateEmailVerificationToken(
         email,
-        userId
+        userId,
       );
 
       await this.EmailProvider.sendEmailVerificationEmail(email, token);
     } catch (error) {
       await this.logger.error(
-        `Error in requestEmailConfirmation (email: ${email}): ${error}`
+        `Error in requestEmailConfirmation (email: ${email}): ${error}`,
       );
       throw error;
     }
@@ -174,7 +174,7 @@ export class AuthService {
         await this.UserService.findByEmail(email);
 
       if (!user) {
-        throw new NotFoundException("User not found");
+        throw new NotFoundException('User not found');
       }
 
       const userId = user._id.toString();
@@ -186,7 +186,7 @@ export class AuthService {
 
       const token = await this.TokenService.generatePasswordResetToken(
         email,
-        userId
+        userId,
       );
 
       if (user) {
@@ -195,7 +195,7 @@ export class AuthService {
       return { success: true };
     } catch (error) {
       await this.logger.error(
-        `Error in requestEmailConfirmation (email: ${email}): ${error}`
+        `Error in requestEmailConfirmation (email: ${email}): ${error}`,
       );
       throw error;
     }
@@ -207,14 +207,14 @@ export class AuthService {
 
   private async canCreateAccount(user: UserDto) {
     if (user.telegram?.length && !telegramRegex.test(user.telegram)) {
-      throw new BadRequestException("Invalid Telegram username");
+      throw new BadRequestException('Invalid Telegram username');
     }
 
     const existingUser: UserDocument | null =
       await this.UserService.findByEmail(user.email);
 
     if (existingUser) {
-      throw new ConflictException("A user with this email already exists");
+      throw new ConflictException('A user with this email already exists');
     }
   }
 }

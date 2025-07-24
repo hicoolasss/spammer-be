@@ -1,5 +1,5 @@
-import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
-import { Document } from "mongoose";
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document } from 'mongoose';
 
 @Schema()
 export class EmailToken {
@@ -11,7 +11,7 @@ export class EmailToken {
 
   @Prop({
     type: Date,
-    required: true
+    required: true,
   })
   expiresAt: Date;
 }

@@ -1,5 +1,5 @@
-import { CurrentUser } from "@_decorators";
-import { IsAccountOwnerGuard, IsAdminGuard, UseAnyOfGuards } from "@_guards";
+import { CurrentUser } from '@_decorators';
+import { IsAccountOwnerGuard, IsAdminGuard, UseAnyOfGuards } from '@_guards';
 import {
   Body,
   Controller,
@@ -11,54 +11,54 @@ import {
   Patch,
   Query,
   UseGuards,
-} from "@nestjs/common";
-import { AuthGuard } from "@nestjs/passport";
+} from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 
-import { UpdateProfileDto } from "./dto/update-profile.dto";
-import { UserDto } from "./dto/user.dto";
-import { UserService } from "./user.service";
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UserDto } from './dto/user.dto';
+import { UserService } from './user.service';
 
-@Controller("user")
+@Controller('user')
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
-  @Get("my-profile")
-  @UseGuards(AuthGuard("jwt"))
+  @Get('my-profile')
+  @UseGuards(AuthGuard('jwt'))
   async getMe(@CurrentUser() user: UserDto) {
     return user;
   }
 
-  @Get("get-user-by-id/:id")
+  @Get('get-user-by-id/:id')
   @UseGuards(
-    AuthGuard("jwt"),
-    UseAnyOfGuards(IsAccountOwnerGuard, IsAdminGuard)
+    AuthGuard('jwt'),
+    UseAnyOfGuards(IsAccountOwnerGuard, IsAdminGuard),
   )
-  async getUserById(@Param("id") id: string) {
+  async getUserById(@Param('id') id: string) {
     return this.userService.getUserDtoById(id);
   }
 
-  @Patch("profile")
+  @Patch('profile')
   @UseGuards(
-    AuthGuard("jwt"),
-    UseAnyOfGuards(IsAccountOwnerGuard, IsAdminGuard)
+    AuthGuard('jwt'),
+    UseAnyOfGuards(IsAccountOwnerGuard, IsAdminGuard),
   )
   async updateProfile(
     @Body() dto: UpdateProfileDto,
-    @CurrentUser("id") userId: string
+    @CurrentUser('id') userId: string,
   ): Promise<UserDto> {
     return this.userService.updateProfile(userId, dto);
   }
 
-  @Get("get-all-users")
-  @UseGuards(AuthGuard("jwt"), IsAdminGuard)
+  @Get('get-all-users')
+  @UseGuards(AuthGuard('jwt'), IsAdminGuard)
   async getAllUsers(
-    @Query("skip", new DefaultValuePipe(0), ParseIntPipe) skip: number,
-    @Query("limit", new DefaultValuePipe(10), ParseIntPipe) limit: number,
-    @Query("searchQuery") searchQuery?: string,
-    @Query("sortBy") sortBy?: string,
-    @Query("sortOrder") sortOrder: "asc" | "desc" = "asc",
-    @Query("plan") plan?: string,
-    @Query("role") role?: string
+    @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('searchQuery') searchQuery?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder: 'asc' | 'desc' = 'asc',
+    @Query('plan') plan?: string,
+    @Query('role') role?: string,
   ) {
     skip = Math.max(0, skip);
     limit = limit > 0 ? limit : 10;
@@ -70,21 +70,21 @@ export class UserController {
       sortBy,
       sortOrder,
       plan,
-      role
+      role,
     );
   }
 
-  @Delete("delete-account/:id")
-  @UseGuards(AuthGuard("jwt"), IsAdminGuard)
-  async deleteAccount(@Param("id") userId: string) {
+  @Delete('delete-account/:id')
+  @UseGuards(AuthGuard('jwt'), IsAdminGuard)
+  async deleteAccount(@Param('id') userId: string) {
     await this.userService.deleteUserAccount(userId);
-    return { message: "Account deleted successfully" };
+    return { message: 'Account deleted successfully' };
   }
 
-  @Patch("permanently-verify-email/:id")
-  @UseGuards(AuthGuard("jwt"), IsAdminGuard)
-  async permanentlyVerifyEmail(@Param("id") userId: string) {
+  @Patch('permanently-verify-email/:id')
+  @UseGuards(AuthGuard('jwt'), IsAdminGuard)
+  async permanentlyVerifyEmail(@Param('id') userId: string) {
     await this.userService.permanentlyVerifyEmail(userId);
-    return { message: "Email verified successfully" };
+    return { message: 'Email verified successfully' };
   }
 }
