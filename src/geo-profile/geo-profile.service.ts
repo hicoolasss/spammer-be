@@ -47,7 +47,7 @@ export class GeoProfileService {
 
     const pipeline = this.redisClient.multi();
 
-    await this.parseCsvFile(files.leadDataPath, ['name', 'lastname', 'phone', 'email'], (row) => {
+    await this.parseCsvFile(files.leadDataPath, ['name', 'lastname', 'email', 'phone'], (row) => {
       pipeline.rPush(leadsKey, JSON.stringify(row));
       leadCount++;
     });
