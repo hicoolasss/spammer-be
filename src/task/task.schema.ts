@@ -24,9 +24,6 @@ export class Task {
   intervalMinutes: number;
 
   @Prop({ required: true })
-  applicationsNumber: number;
-
-  @Prop({ required: true })
   timeFrom: string;
 
   @Prop({ required: true })

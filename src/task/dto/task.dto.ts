@@ -8,7 +8,6 @@ export interface TaskDto {
   geo: string;
   profile: GeoProfileDto;
   intervalMinutes: number;
-  applicationsNumber: number;
   timeFrom: string;
   timeTo: string;
   result?: TaskResult;
