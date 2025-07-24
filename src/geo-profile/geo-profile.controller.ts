@@ -1,6 +1,6 @@
 import { csvMulterOptions } from '@_config/multer.config';
 import { CurrentUser } from '@_decorators';
-import { CreateGeoProfileDto } from '@geo-profile/dto/create-geo-profile.dto';
+import { CreateGeoProfileDto, UpdateGeoProfileDto } from '@geo-profile/dto/create-geo-profile.dto';
 import {
   GeoProfileDto,
   GeoProfileListResponseDto,
@@ -18,6 +18,7 @@ import {
   Query,
   UploadedFiles,
   UseInterceptors,
+  Patch,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { UserDto } from '@user/dto/user.dto';
@@ -58,6 +59,14 @@ export class GeoProfileController {
     );
 
     return result;
+  }
+
+  @Patch(':profileId')
+  async update(
+    @Param('profileId') profileId: string,
+    @Body() dto: UpdateGeoProfileDto,
+  ): Promise<GeoProfileDto> {
+    return this.geoProfileService.updateGeoProfile(profileId, dto);
   }
 
   //TODO
