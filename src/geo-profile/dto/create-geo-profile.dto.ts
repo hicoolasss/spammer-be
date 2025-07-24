@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateGeoProfileDto {
   @IsString()
@@ -8,4 +8,14 @@ export class CreateGeoProfileDto {
   @IsString()
   @IsNotEmpty()
   geo: string;
+}
+
+export class UpdateGeoProfileDto {
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @IsString()
+  @IsOptional()
+  geo?: string;
 }
