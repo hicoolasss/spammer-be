@@ -1,14 +1,25 @@
-export const HEADERS = (locale: string) => ({
-  site: "fb", 
-  Referer: "https://l.facebook.com/",
-  "Accept-Language": locale,
-  "X-Requested-With": "com.facebook.katana",
-  "HTTP_SEC_CH_UA": '"Not)A;Brand";v="8", "Chromium";v="138", "Android WebView";v="138"',
-  "HTTP_SEC_CH_UA_MOBILE": '?1',
-  "HTTP_SEC_CH_UA_PLATFORM": '"Android"',
-  "Content-Security-Policy":
+export const HEADERS = (locale: string, userAgent: string): Record<string, string> => ({
+  Accept:
+    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+  'Accept-Encoding': 'gzip, deflate, br, zstd',
+  'Accept-Language': locale,
+  Priority: 'u=0, i',
+  Referer: 'http://m.facebook.com/',
+  'Sec-Ch-Ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Android WebView";v="138"',
+  'Sec-Ch-Ua-Mobile': '?1',
+  'Sec-Ch-Ua-Platform': '"Android"',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'cross-site',
+  'Sec-Fetch-User': '?1',
+  site: 'fb',
+  'Upgrade-Insecure-Requests': '1',
+  'User-Agent': userAgent,
+  'X-Amzn-Trace-Id': 'Root=1-687e17b0-3c79412a1a7522593d279880',
+  'X-Requested-With': 'com.facebook.katana',
+  'Content-Security-Policy':
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' *.facebook.com *.fbcdn.net; object-src 'none'; base-uri 'self'",
-  "X-Frame-Options": "SAMEORIGIN",
-  "X-XSS-Protection": "1; mode=block",
-  "X-Content-Type-Options": "nosniff",
+  'X-Frame-Options': 'SAMEORIGIN',
+  'X-XSS-Protection': '1; mode=block',
+  'X-Content-Type-Options': 'nosniff',
 });

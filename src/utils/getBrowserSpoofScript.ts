@@ -1,7 +1,4 @@
-export function getLocaleOverrideScript(
-  locale: string,
-  timeZone: string,
-): string {
+export function getBrowserSpoofScript(locale: string, timeZone: string): string {
   return `
     Object.defineProperty(Intl.DateTimeFormat.prototype, 'resolvedOptions', {
       value: function () {

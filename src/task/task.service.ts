@@ -28,6 +28,7 @@ export class TaskService {
         total: 0,
         success: 0,
       },
+      shouldClickRedirectLink: dto.shouldClickRedirectLink ?? false,
     });
 
     const task = await this.taskModel
@@ -54,6 +55,7 @@ export class TaskService {
       status: task.status,
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString(),
+      shouldClickRedirectLink: task.shouldClickRedirectLink,
     };
   }
 
@@ -103,6 +105,7 @@ export class TaskService {
         status: task.status,
         createdAt: task.createdAt.toISOString(),
         updatedAt: task.updatedAt.toISOString(),
+        shouldClickRedirectLink: task.shouldClickRedirectLink,
       };
     });
 

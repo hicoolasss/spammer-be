@@ -86,24 +86,33 @@ export class AgendaService implements OnModuleInit {
       this.logger.info('Not a weekday, skipping task');
       return false;
     }
-
     const currentTime = now.getHours() * 60 + now.getMinutes();
     const [fromHour, fromMin] = task.timeFrom.split(':').map(Number);
     const [toHour, toMin] = task.timeTo.split(':').map(Number);
     const timeFrom = fromHour * 60 + fromMin;
     const timeTo = toHour * 60 + toMin;
-
     this.logger.debug(
       `Checking task time: current=${currentTime}, from=${timeFrom}, to=${timeTo}`,
     );
-
+    let inTime = false;
     if (timeFrom < timeTo) {
-      return currentTime >= timeFrom && currentTime <= timeTo;
+      inTime = currentTime >= timeFrom && currentTime <= timeTo;
     } else if (timeFrom > timeTo) {
-      return currentTime >= timeFrom || currentTime <= timeTo;
-    } else {
-      return false;
+      inTime = currentTime >= timeFrom || currentTime <= timeTo;
     }
+    if (!inTime) return false;
+
+    if (task.lastRunAt) {
+      const lastRun = new Date(task.lastRunAt).getTime();
+      const intervalMs = (task.intervalMinutes || 1) * 60 * 1000;
+      if (now.getTime() - lastRun < intervalMs) {
+        this.logger.debug(
+          `Task interval not reached: lastRunAt=${task.lastRunAt}`,
+        );
+        return false;
+      }
+    }
+    return true;
   }
 
   private async scheduleJob(cronExpression: string, jobName: string) {
