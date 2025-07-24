@@ -9,10 +9,7 @@ import { RedisClientType } from 'redis';
 import { REDIS_CLIENT } from 'src/redis/redis.module';
 
 import { CreateGeoProfileDto } from './dto/create-geo-profile.dto';
-import {
-  GeoProfileDto,
-  GeoProfileListResponseDto,
-} from './dto/geo-profile.dto';
+import { GeoProfileDto, GeoProfileListResponseDto } from './dto/geo-profile.dto';
 import { GeoProfile, GeoProfileDocument } from './geo-profile.schema';
 
 @Injectable()
@@ -50,14 +47,10 @@ export class GeoProfileService {
 
     const pipeline = this.redisClient.multi();
 
-    await this.parseCsvFile(
-      files.leadDataPath,
-      ['name', 'lastname', 'phone', 'email'],
-      (row) => {
-        pipeline.rPush(leadsKey, JSON.stringify(row));
-        leadCount++;
-      },
-    );
+    await this.parseCsvFile(files.leadDataPath, ['name', 'lastname', 'phone', 'email'], (row) => {
+      pipeline.rPush(leadsKey, JSON.stringify(row));
+      leadCount++;
+    });
 
     await this.parseCsvFile(files.userAgentsPath, ['userAgent'], (row) => {
       pipeline.rPush(uasKey, row.userAgent);
@@ -147,17 +140,45 @@ export class GeoProfileService {
     };
   }
 
+  async updateGeoProfile(
+    profileId: string,
+    dto: Partial<{ name: string; geo: string }>,
+  ): Promise<GeoProfileDto> {
+    const profile = await this.profileModel.findById(profileId);
+
+    if (!profile) {
+      throw new Error(`Profile with ID ${profileId} not found`);
+    }
+
+    if (dto.name !== undefined) profile.name = dto.name;
+    if (dto.geo !== undefined) profile.geo = dto.geo;
+
+    await profile.save();
+
+    return {
+      _id: profile._id.toString(),
+      name: profile.name,
+      geo: profile.geo,
+      leadKey: profile.leadKey,
+      userAgentKey: profile.userAgentKey,
+      fbclidKey: profile.fbclidKey,
+      createdBy: profile.createdBy,
+      createdAt: profile.createdAt,
+      leadCount: profile.leadCount || 0,
+      userAgentCount: profile.useAgentCount || 0,
+      fbclidCount: profile.fbclidCount || 0,
+    };
+  }
+
   async deleteGeoProfile(profileId: string) {
     const profile = await this.profileModel.findById(profileId).exec();
     if (!profile) {
       throw new Error(`Profile with ID ${profileId} not found`);
     }
 
-    const keysToDelete = [
-      profile.leadKey,
-      profile.userAgentKey,
-      profile.fbclidKey,
-    ].filter((k): k is string => typeof k === 'string');
+    const keysToDelete = [profile.leadKey, profile.userAgentKey, profile.fbclidKey].filter(
+      (k): k is string => typeof k === 'string',
+    );
 
     if (keysToDelete.length) {
       await Promise.all(keysToDelete.map((key) => this.redisClient.del(key)));

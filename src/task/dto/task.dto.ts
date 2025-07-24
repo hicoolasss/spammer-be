@@ -31,6 +31,17 @@ export interface CreateTaskDto {
   shouldClickRedirectLink?: boolean;
 }
 
+export interface UpdateTaskDto {
+  url?: string;
+  geo?: string;
+  profileId?: string;
+  intervalMinutes?: number;
+  applicationsNumber?: number;
+  timeFrom?: string;
+  timeTo?: string;
+  shouldClickRedirectLink?: boolean;
+}
+
 export interface TaskListResponseDto {
   items: TaskDto[];
   total: number;
