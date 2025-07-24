@@ -1,10 +1,7 @@
 import { csvMulterOptions } from '@_config/multer.config';
 import { CurrentUser } from '@_decorators';
 import { CreateGeoProfileDto, UpdateGeoProfileDto } from '@geo-profile/dto/create-geo-profile.dto';
-import {
-  GeoProfileDto,
-  GeoProfileListResponseDto,
-} from '@geo-profile/dto/geo-profile.dto';
+import { GeoProfileDto, GeoProfileListResponseDto } from '@geo-profile/dto/geo-profile.dto';
 import { GeoProfileService } from '@geo-profile/geo-profile.service';
 import {
   Body,
@@ -20,7 +17,7 @@ import {
   UseInterceptors,
   Patch,
 } from '@nestjs/common';
-import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { AnyFilesInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { UserDto } from '@user/dto/user.dto';
 
 @Controller('geo-profile')
@@ -62,11 +59,29 @@ export class GeoProfileController {
   }
 
   @Patch(':profileId')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'leadData', maxCount: 1 },
+        { name: 'userAgents', maxCount: 1 },
+        { name: 'fbclids', maxCount: 1 },
+      ],
+      csvMulterOptions,
+    ),
+  )
   async update(
     @Param('profileId') profileId: string,
+    @UploadedFiles()
+    files: {
+      leadData?: Express.Multer.File[];
+      userAgents?: Express.Multer.File[];
+      fbclids?: Express.Multer.File[];
+    },
     @Body() dto: UpdateGeoProfileDto,
   ): Promise<GeoProfileDto> {
-    return this.geoProfileService.updateGeoProfile(profileId, dto);
+    console.log('DTO:', dto);
+    console.log('FILES:', files);
+    return this.geoProfileService.updateGeoProfile(profileId, dto, files);
   }
 
   //TODO
@@ -80,26 +95,14 @@ export class GeoProfileController {
   @Get()
   async listAll(
     @CurrentUser() user: UserDto,
-    @Query(
-      'skip',
-      new ParseIntPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }),
-    )
+    @Query('skip', new ParseIntPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }))
     skip: number = 0,
-    @Query(
-      'limit',
-      new ParseIntPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }),
-    )
+    @Query('limit', new ParseIntPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }))
     limit: number = 10,
     @Query('searchQuery') searchQuery?: string,
     @Query('selectedGeo') selectedGeo?: string,
   ): Promise<GeoProfileListResponseDto> {
-    return this.geoProfileService.findAllByUser(
-      user._id,
-      skip,
-      limit,
-      searchQuery,
-      selectedGeo,
-    );
+    return this.geoProfileService.findAllByUser(user._id, skip, limit, searchQuery, selectedGeo);
   }
 
   @Delete(':profileId')

@@ -143,15 +143,44 @@ export class GeoProfileService {
   async updateGeoProfile(
     profileId: string,
     dto: Partial<{ name: string; geo: string }>,
+    files: {
+      leadData?: Express.Multer.File[];
+      fbclids?: Express.Multer.File[];
+      userAgents?: Express.Multer.File[];
+    },
   ): Promise<GeoProfileDto> {
     const profile = await this.profileModel.findById(profileId);
+    if (!profile) throw new Error(`Profile with ID ${profileId} not found`);
 
-    if (!profile) {
-      throw new Error(`Profile with ID ${profileId} not found`);
+    if (dto.name) profile.name = dto.name;
+    if (dto.geo) profile.geo = dto.geo;
+
+    if (files.leadData?.length) {
+      profile.leadCount = await this.processCsvAndUpdateRedis(
+        files.leadData[0].path,
+        profile.leadKey,
+        ['name', 'lastname', 'email', 'phone'],
+        (row) => JSON.stringify(row),
+      );
     }
 
-    if (dto.name !== undefined) profile.name = dto.name;
-    if (dto.geo !== undefined) profile.geo = dto.geo;
+    if (files.userAgents?.length) {
+      profile.useAgentCount = await this.processCsvAndUpdateRedis(
+        files.userAgents[0].path,
+        profile.userAgentKey,
+        ['userAgent'],
+        (row) => row.userAgent,
+      );
+    }
+
+    if (files.fbclids?.length) {
+      profile.fbclidCount = await this.processCsvAndUpdateRedis(
+        files.fbclids[0].path,
+        profile.fbclidKey,
+        ['fbclid'],
+        (row) => row.fbclid,
+      );
+    }
 
     await profile.save();
 
@@ -164,9 +193,9 @@ export class GeoProfileService {
       fbclidKey: profile.fbclidKey,
       createdBy: profile.createdBy,
       createdAt: profile.createdAt,
-      leadCount: profile.leadCount || 0,
-      userAgentCount: profile.useAgentCount || 0,
-      fbclidCount: profile.fbclidCount || 0,
+      leadCount: profile.leadCount,
+      userAgentCount: profile.useAgentCount,
+      fbclidCount: profile.fbclidCount,
     };
   }
 
@@ -201,5 +230,28 @@ export class GeoProfileService {
         .on('end', resolve)
         .on('error', reject);
     });
+  }
+
+  async processCsvAndUpdateRedis(
+    filePath: string,
+    redisKey: string,
+    headers: string[],
+    onRowTransform: (row: Record<string, string>) => string,
+  ): Promise<number> {
+    let count = 0;
+
+    const pipeline = this.redisClient.multi();
+    pipeline.del(redisKey);
+
+    await this.parseCsvFile(filePath, headers, (row) => {
+      pipeline.rPush(redisKey, onRowTransform(row));
+      count++;
+    });
+
+    await pipeline.exec();
+
+    unlink(filePath, () => {});
+
+    return count;
   }
 }
