@@ -1,30 +1,32 @@
 import { jwtConfig } from '@_config/jwt.config';
 import { RefreshTokenMiddleware, SetUserMiddleware } from '@_middlewares';
+import { AdminController } from '@admin/admin.controller';
+import { AdminModule } from '@admin/admin.module';
 import { AIModule } from '@ai/ai.module';
 import { AuthModule } from '@auth/auth.module';
 import { CookieModule } from '@cookie/cookie.module';
 import { CookieService } from '@cookie/cookie.service';
 import { EmailModule } from '@email/email.module';
+import { GeoProfileController } from '@geo-profile/geo-profile.controller';
+import { GeoProfileModule } from '@geo-profile/geo-profile.module';
 import { Logger, MiddlewareConsumer, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
+import { RedisModule } from '@redis/redis.module';
 import { TaskController } from '@task/task.controller';
+import { TaskModule } from '@task/task.module';
 import { TokenModule } from '@token/token.module';
 import { TokenService } from '@token/token.service';
 import { UserController } from '@user/user.controller';
 import { UserModule } from '@user/user.module';
-import { LogWrapper } from '@utils/LogWrapper';
+import { LogWrapper } from '@utils';
 import mongoose from 'mongoose';
 
-import { AdminController } from './admin/admin.controller';
-import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
-import { GeoProfileController } from './geo-profile/geo-profile.controller';
-import { GeoProfileModule } from './geo-profile/geo-profile.module';
-import { RedisModule } from './redis/redis.module';
-import { TaskModule } from './task/task.module';
+import { JobsModule } from './jobs/jobs.module';
+import { PuppeteerModule } from './puppeteer/puppeteer.module';
 
 @Module({
   imports: [
@@ -52,8 +54,10 @@ import { TaskModule } from './task/task.module';
     UserModule,
     AdminModule,
     GeoProfileModule,
+    PuppeteerModule,
     RedisModule,
     TaskModule,
+    JobsModule,
   ],
   controllers: [AppController],
   providers: [CookieService, TokenService, Logger],

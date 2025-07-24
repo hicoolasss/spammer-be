@@ -19,7 +19,7 @@ import { TokenService } from '@token/token.service';
 import { UserDto } from '@user/dto/user.dto';
 import { UserDocument } from '@user/user.schema';
 import { UserService } from '@user/user.service';
-import { LogWrapper } from '@utils/LogWrapper';
+import { LogWrapper } from '@utils';
 import * as bcrypt from 'bcryptjs';
 import { Response } from 'express';
 import { Model } from 'mongoose';

@@ -1,7 +1,7 @@
 import { sendEmail } from '@_helpers/email.helper';
 import { EmailPayload, EmailTask, PlanPayloadStrict } from '@interfaces';
 import { Injectable } from '@nestjs/common';
-import { LogWrapper } from '@utils/LogWrapper';
+import { LogWrapper } from '@utils';
 import { EmailTemplate } from 'src/enums/email.enums';
 
 @Injectable()

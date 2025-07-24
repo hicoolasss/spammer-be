@@ -1,4 +1,4 @@
-import { LogWrapper } from '@utils/LogWrapper';
+import { LogWrapper } from '@utils';
 
 type JobHandler = (job) => Promise<void>;
 

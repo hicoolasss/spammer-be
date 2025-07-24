@@ -39,8 +39,17 @@ export class Task {
   })
   status: TaskStatus;
 
+  @Prop({ type: Boolean, default: false })
+  isRunning: boolean;
+
+  @Prop({ type: Boolean, default: false })
+  shouldClickRedirectLink: boolean;
+
   @Prop({ type: Object, default: { total: 0, success: 0 } })
   result: TaskResult;
+
+  @Prop({ type: Date, default: null })
+  lastRunAt: Date;
 
   createdAt: Date;
   updatedAt: Date;

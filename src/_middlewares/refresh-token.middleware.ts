@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { TokenService } from '@token/token.service';
-import { LogWrapper } from '@utils/LogWrapper';
+import { LogWrapper } from '@utils';
 import { NextFunction, Request, Response } from 'express';
 
 @Injectable()

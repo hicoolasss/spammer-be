@@ -16,6 +16,8 @@ export interface TaskDto {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  lastRunAt?: string;
+  shouldClickRedirectLink?: boolean;
 }
 
 export interface CreateTaskDto {
@@ -26,6 +28,7 @@ export interface CreateTaskDto {
   applicationsNumber: number;
   timeFrom: string;
   timeTo: string;
+  shouldClickRedirectLink?: boolean;
 }
 
 export interface TaskListResponseDto {

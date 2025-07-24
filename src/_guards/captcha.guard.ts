@@ -5,7 +5,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
-import { LogWrapper } from '@utils/LogWrapper';
+import { LogWrapper } from '@utils';
 import axios from 'axios';
 import { Request } from 'express';
 import * as qs from 'querystring';

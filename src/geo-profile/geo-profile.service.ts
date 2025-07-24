@@ -1,7 +1,8 @@
+import { CountryCode } from '@enums';
 import { Buffers } from '@interfaces';
 import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import * as csv from 'csv-parser';
+import csv from 'csv-parser';
 import { createReadStream, unlink } from 'fs';
 import { FilterQuery, Model } from 'mongoose';
 import { RedisClientType } from 'redis';
@@ -26,9 +27,15 @@ export class GeoProfileService {
     files: Buffers,
     userId: string,
   ): Promise<GeoProfileDto> {
+    const geo = Object.values(CountryCode).includes(dto.geo as CountryCode)
+      ? dto.geo
+      : CountryCode.ALL;
+    if (geo === CountryCode.ALL && dto.geo !== CountryCode.ALL) {
+      console.warn(`Geo '${dto.geo}' is not a valid CountryCode, using 'ALL'`);
+    }
     const profile = await this.profileModel.create({
       name: dto.name,
-      geo: dto.geo,
+      geo: geo,
       createdBy: userId,
       createdAt: new Date(),
     });

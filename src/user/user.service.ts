@@ -2,7 +2,7 @@ import { telegramRegex } from '@consts';
 import { DEFAULT_USER_PLAN, GlobalRoles } from '@enums';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { LogWrapper } from '@utils/LogWrapper';
+import { LogWrapper } from '@utils';
 import * as bcrypt from 'bcryptjs';
 import { FilterQuery, Model } from 'mongoose';
 

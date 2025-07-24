@@ -1,6 +1,6 @@
 import { CookieService } from '@cookie/cookie.service';
 import { TokenService } from '@token/token.service';
-import { LogWrapper } from '@utils/LogWrapper';
+import { LogWrapper } from '@utils';
 import { NextFunction, Request, Response } from 'express';
 
 import { RefreshTokenMiddleware } from './refresh-token.middleware';
