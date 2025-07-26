@@ -105,7 +105,6 @@ export class TaskService {
           createdBy: task.createdBy,
           profile: task.profileId,
           intervalMinutes: task.intervalMinutes,
-          applicationsNumber: task.applicationsNumber,
           timeFrom: task.timeFrom,
           timeTo: task.timeTo,
           result,
