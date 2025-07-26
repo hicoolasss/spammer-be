@@ -42,7 +42,19 @@ export class Task {
   @Prop({ type: Boolean, default: false })
   shouldClickRedirectLink: boolean;
 
-  @Prop({ type: Object, default: { total: 0, success: 0 } })
+  @Prop({ 
+    type: Object, 
+    default: { 
+      total: 0, 
+      success: {} 
+    },
+    transform: function(doc, ret) {
+      if (ret.result && ret.result.success instanceof Map) {
+        ret.result.success = Object.fromEntries(ret.result.success);
+      }
+      return ret;
+    }
+  })
   result: TaskResult;
 
   @Prop({ type: Date, default: null })
