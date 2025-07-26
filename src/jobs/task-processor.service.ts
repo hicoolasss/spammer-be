@@ -137,6 +137,35 @@ export class TaskProcessorService {
     }
   }
 
+  private async updateTaskStatistics(taskId: string, finalRedirectUrl: string | null): Promise<void> {
+    try {
+      const task = await this.taskModel.findById(taskId).exec();
+      if (!task) {
+        this.logger.error(`Task with ID ${taskId} not found for statistics update`);
+        return;
+      }
+
+      task.result.total = (task.result?.total || 0) + 1;
+
+      if (!task.result.success) {
+        task.result.success = {};
+      }
+
+      if (finalRedirectUrl && finalRedirectUrl !== task.url) {
+        const redirectKey = finalRedirectUrl;
+        const currentCount = (task.result.success as Record<string, number>)[redirectKey] || 0;
+        (task.result.success as Record<string, number>)[redirectKey] = currentCount + 1;
+        
+        this.logger.info(`Task ${taskId} successful redirect to: ${finalRedirectUrl}`);
+      }
+
+      await task.save();
+      this.logger.info(`Updated statistics for task ${taskId}: total=${task.result.total}, success=${JSON.stringify(task.result.success)}`);
+    } catch (error) {
+      this.logger.error(`Error updating task statistics: ${error.message}`, error);
+    }
+  }
+
   private async getFinalEffectivePage(
     browser: Browser,
     startPage: Page,
@@ -208,6 +237,7 @@ export class TaskProcessorService {
     humanize = false,
   ): Promise<void> {
     const { url, geo, shouldClickRedirectLink } = task;
+    let finalRedirectUrl: string | null = null;
 
     let page: Page | null = null;
     let finalPage: Page | null = null;
@@ -263,6 +293,10 @@ export class TaskProcessorService {
                   btn.textContent.toLowerCase().includes('follow link')),
             );
             if (target) {
+              (window as any).__clickedLink = {
+                href: target.getAttribute('href'),
+                text: target.textContent?.trim(),
+              };
               (target as HTMLElement).click();
               return true;
             }
@@ -289,6 +323,11 @@ export class TaskProcessorService {
           );
         }
       }
+
+      if (!finalPage.isClosed()) {
+        finalRedirectUrl = finalPage.url();
+        this.logger.info(`Final redirect URL: ${finalRedirectUrl}`);
+      }
     } catch (error) {
       this.logger.error(`Error in Puppeteer task: ${error.message}`, error);
     } finally {
@@ -298,6 +337,8 @@ export class TaskProcessorService {
         await this.puppeteerService.releasePage(page, geo as CountryCode);
       }
     }
+
+    await this.updateTaskStatistics(task._id.toString(), finalRedirectUrl);
   }
 
   private async tryClickRedirectLink(page: Page) {
@@ -849,6 +890,9 @@ export class TaskProcessorService {
       this.logger.info('All fields filled, preparing to submit form...');
       await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 2000));
 
+      const beforeSubmitUrl = page.url();
+      this.logger.info(`URL before form submission: ${beforeSubmitUrl}`);
+
       const submitResult = await page.evaluate((formIndex) => {
         const forms = Array.from(document.querySelectorAll('form'));
         const form = forms[formIndex];
@@ -879,7 +923,28 @@ export class TaskProcessorService {
       }, analysis.bestForm.formIndex);
 
       this.logger.info(`🎉 Form submit result: ${submitResult}`);
-      this.logger.info('✅ AI-powered form filling completed successfully!');
+
+      try {
+        await page.waitForNavigation({ 
+          waitUntil: 'domcontentloaded', 
+          timeout: 15000 
+        }).catch(() => {
+          this.logger.warn('Navigation timeout after form submission');
+        });
+        
+        const afterSubmitUrl = page.url();
+        this.logger.info(`URL after form submission: ${afterSubmitUrl}`);
+        
+        if (afterSubmitUrl !== beforeSubmitUrl) {
+          this.logger.info(`Form submission successful! Redirected to: ${afterSubmitUrl}`);
+        } else {
+          this.logger.info('Form submitted but no navigation detected');
+        }
+      } catch (error) {
+        this.logger.warn(`Error waiting for navigation after form submission: ${error.message}`);
+      }
+
+      this.logger.info('AI-powered form filling completed successfully!');
     } catch (error) {
       if (
         error.message.includes('Execution context was destroyed') ||
