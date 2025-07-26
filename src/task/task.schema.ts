@@ -24,9 +24,6 @@ export class Task {
   intervalMinutes: number;
 
   @Prop({ required: true })
-  applicationsNumber: number;
-
-  @Prop({ required: true })
   timeFrom: string;
 
   @Prop({ required: true })
@@ -45,7 +42,16 @@ export class Task {
   @Prop({ type: Boolean, default: false })
   shouldClickRedirectLink: boolean;
 
-  @Prop({ type: Object, default: { total: 0, success: 0 } })
+  @Prop({ 
+    type: {
+      total: { type: Number, default: 0 },
+      success: { type: Object, default: {} }
+    },
+    default: { 
+      total: 0, 
+      success: {} 
+    }
+  })
   result: TaskResult;
 
   @Prop({ type: Date, default: null })

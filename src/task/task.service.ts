@@ -1,7 +1,13 @@
 import { GeoProfileDto } from '@geo-profile/dto/geo-profile.dto';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { CreateTaskDto, TaskDto, TaskListResponseDto, UpdateTaskDto } from '@task/dto/task.dto';
+import {
+  CreateTaskDto,
+  TaskDto,
+  TaskListResponseDto,
+  TaskStatisticsDto,
+  UpdateTaskDto,
+} from '@task/dto/task.dto';
 import { FilterQuery, Model } from 'mongoose';
 
 import { Task, TaskDocument } from './task.schema';
@@ -22,7 +28,7 @@ export class TaskService {
       timeTo: dto.timeTo,
       result: {
         total: 0,
-        success: 0,
+        success: {},
       },
       shouldClickRedirectLink: dto.shouldClickRedirectLink ?? false,
     });
@@ -44,10 +50,13 @@ export class TaskService {
       createdBy: task.createdBy,
       profile: profile,
       intervalMinutes: task.intervalMinutes,
-      applicationsNumber: task.applicationsNumber,
       timeFrom: task.timeFrom,
       timeTo: task.timeTo,
-      result: task.result,
+      result: {
+        total: 0,
+        successCount: 0,
+        redirects: [],
+      },
       status: task.status,
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString(),
@@ -63,13 +72,16 @@ export class TaskService {
     selectedGeo: string,
   ): Promise<TaskListResponseDto> {
     const filter: FilterQuery<TaskDocument> = { createdBy: userId };
+
     if (searchQuery) {
       const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       filter.name = { $regex: escaped, $options: 'i' };
     }
+
     if (selectedGeo) {
       filter.geo = selectedGeo;
     }
+
     const total = await this.taskModel.countDocuments(filter).exec();
     const tasks = await this.taskModel
       .find(filter)
@@ -82,24 +94,27 @@ export class TaskService {
       .lean()
       .exec();
 
-    const items = tasks.map((task) => {
-      return {
-        _id: task._id.toString(),
-        url: task.url,
-        geo: task.geo,
-        createdBy: task.createdBy,
-        profile: task.profileId,
-        intervalMinutes: task.intervalMinutes,
-        applicationsNumber: task.applicationsNumber,
-        timeFrom: task.timeFrom,
-        timeTo: task.timeTo,
-        result: task.result,
-        status: task.status,
-        createdAt: task.createdAt.toISOString(),
-        updatedAt: task.updatedAt.toISOString(),
-        shouldClickRedirectLink: task.shouldClickRedirectLink,
-      };
-    });
+    const items = await Promise.all(
+      tasks.map(async (task) => {
+        const result = await this.getTaskStatistics(task._id.toString());
+
+        return {
+          _id: task._id.toString(),
+          url: task.url,
+          geo: task.geo,
+          createdBy: task.createdBy,
+          profile: task.profileId,
+          intervalMinutes: task.intervalMinutes,
+          timeFrom: task.timeFrom,
+          timeTo: task.timeTo,
+          result,
+          status: task.status,
+          createdAt: task.createdAt.toISOString(),
+          updatedAt: task.updatedAt.toISOString(),
+          shouldClickRedirectLink: task.shouldClickRedirectLink,
+        };
+      })
+    );
 
     return {
       items,
@@ -129,6 +144,8 @@ export class TaskService {
       })
       .exec();
 
+    const result = await this.getTaskStatistics(populatedTask!._id.toString());
+
     return {
       _id: populatedTask!._id.toString(),
       url: populatedTask!.url,
@@ -136,14 +153,39 @@ export class TaskService {
       createdBy: populatedTask!.createdBy,
       profile: populatedTask!.profileId,
       intervalMinutes: populatedTask!.intervalMinutes,
-      applicationsNumber: populatedTask!.applicationsNumber,
       timeFrom: populatedTask!.timeFrom,
       timeTo: populatedTask!.timeTo,
-      result: populatedTask!.result,
+      result,
       status: populatedTask!.status,
       createdAt: populatedTask!.createdAt.toISOString(),
       updatedAt: populatedTask!.updatedAt.toISOString(),
       shouldClickRedirectLink: populatedTask!.shouldClickRedirectLink,
+    };
+  }
+
+  private async getTaskStatistics(taskId: string): Promise<TaskStatisticsDto> {
+    const task = await this.taskModel.findById(taskId).exec();
+
+    if (!task) {
+      throw new Error(`Task with ID ${taskId} not found`);
+    }
+
+    const result = task.result || { total: 0, success: {} };
+    const successObj = (result.success as Record<string, number>) || {};
+
+    const successCount = Object.values(successObj).reduce((sum, count) => sum + count, 0);
+
+    const redirects = Object.entries(successObj)
+      .map(([url, count]) => ({
+        url,
+        count,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      total: result.total || 0,
+      successCount,
+      redirects,
     };
   }
 }

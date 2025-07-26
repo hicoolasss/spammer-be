@@ -1,9 +1,10 @@
 import { CountryCode } from '@enums';
 import { Buffers } from '@interfaces';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import csv from 'csv-parser';
-import { createReadStream, unlink } from 'fs';
+import { createReadStream } from 'fs';
+import { unlink } from 'fs/promises';
 import { FilterQuery, Model } from 'mongoose';
 import { RedisClientType } from 'redis';
 import { REDIS_CLIENT } from 'src/redis/redis.module';
@@ -14,6 +15,8 @@ import { GeoProfile, GeoProfileDocument } from './geo-profile.schema';
 
 @Injectable()
 export class GeoProfileService {
+  private readonly logger = new Logger(GeoProfileService.name);
+
   constructor(
     @InjectModel(GeoProfile.name) private profileModel: Model<GeoProfile>,
     @Inject(REDIS_CLIENT) private redisClient: RedisClientType,
@@ -72,9 +75,17 @@ export class GeoProfileService {
     profile.userAgentKey = uasKey;
     await profile.save();
 
-    [files.leadDataPath, files.userAgentsPath, files.fbClidsPath]
-      .filter((p) => !!p)
-      .forEach((p) => unlink(p, () => {}));
+    await Promise.all(
+      [files.leadDataPath, files.userAgentsPath, files.fbClidsPath]
+        .filter(Boolean)
+        .map(async (p) => {
+          try {
+            await unlink(p);
+          } catch (err) {
+            this.logger.error(`Ошибка удаления файла ${p}:`, err);
+          }
+        })
+    );
 
     return {
       _id: profileId,
@@ -143,15 +154,44 @@ export class GeoProfileService {
   async updateGeoProfile(
     profileId: string,
     dto: Partial<{ name: string; geo: string }>,
+    files: {
+      leadData?: Express.Multer.File[];
+      fbclids?: Express.Multer.File[];
+      userAgents?: Express.Multer.File[];
+    },
   ): Promise<GeoProfileDto> {
     const profile = await this.profileModel.findById(profileId);
+    if (!profile) throw new Error(`Profile with ID ${profileId} not found`);
 
-    if (!profile) {
-      throw new Error(`Profile with ID ${profileId} not found`);
+    if (dto.name) profile.name = dto.name;
+    if (dto.geo) profile.geo = dto.geo;
+
+    if (files.leadData?.length) {
+      profile.leadCount = await this.processCsvAndUpdateRedis(
+        files.leadData[0].path,
+        profile.leadKey,
+        ['name', 'lastname', 'email', 'phone'],
+        (row) => JSON.stringify(row),
+      );
     }
 
-    if (dto.name !== undefined) profile.name = dto.name;
-    if (dto.geo !== undefined) profile.geo = dto.geo;
+    if (files.userAgents?.length) {
+      profile.useAgentCount = await this.processCsvAndUpdateRedis(
+        files.userAgents[0].path,
+        profile.userAgentKey,
+        ['userAgent'],
+        (row) => row.userAgent,
+      );
+    }
+
+    if (files.fbclids?.length) {
+      profile.fbclidCount = await this.processCsvAndUpdateRedis(
+        files.fbclids[0].path,
+        profile.fbclidKey,
+        ['fbclid'],
+        (row) => row.fbclid,
+      );
+    }
 
     await profile.save();
 
@@ -164,9 +204,9 @@ export class GeoProfileService {
       fbclidKey: profile.fbclidKey,
       createdBy: profile.createdBy,
       createdAt: profile.createdAt,
-      leadCount: profile.leadCount || 0,
-      userAgentCount: profile.useAgentCount || 0,
-      fbclidCount: profile.fbclidCount || 0,
+      leadCount: profile.leadCount,
+      userAgentCount: profile.useAgentCount,
+      fbclidCount: profile.fbclidCount,
     };
   }
 
@@ -201,5 +241,28 @@ export class GeoProfileService {
         .on('end', resolve)
         .on('error', reject);
     });
+  }
+
+  async processCsvAndUpdateRedis(
+    filePath: string,
+    redisKey: string,
+    headers: string[],
+    onRowTransform: (row: Record<string, string>) => string,
+  ): Promise<number> {
+    let count = 0;
+
+    const pipeline = this.redisClient.multi();
+    pipeline.del(redisKey);
+
+    await this.parseCsvFile(filePath, headers, (row) => {
+      pipeline.rPush(redisKey, onRowTransform(row));
+      count++;
+    });
+
+    await pipeline.exec();
+
+    await unlink(filePath);
+
+    return count;
   }
 }

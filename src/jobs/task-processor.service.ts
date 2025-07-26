@@ -41,15 +41,15 @@ export class TaskProcessorService {
     try {
       const activeTasks = await this.taskModel.find({ status: TaskStatus.ACTIVE }).exec();
 
-      this.logger.info(`Found ${activeTasks.length} active tasks to process`);
+      this.logger.info(`[TASK_PROCESSOR] Found ${activeTasks.length} active tasks to process`);
 
       for (const task of activeTasks) {
         void this.processTasks(task._id.toString()).catch((e) => {
-          this.logger.error(`Error processing task ${task._id}: ${e.message}`);
+          this.logger.error(`[TASK_${task._id}] Error processing task: ${e.message}`);
         });
       }
     } catch (error) {
-      this.logger.error(`Error processing active tasks: ${error.message}`, error);
+      this.logger.error(`[TASK_PROCESSOR] Error processing active tasks: ${error.message}`, error);
     }
   }
 
@@ -58,12 +58,12 @@ export class TaskProcessorService {
       const task = await this.taskModel.findById(taskId).exec();
 
       if (!task) {
-        this.logger.error(`Task with ID ${taskId} not found`);
+        this.logger.error(`[TASK_${taskId}] Task not found`);
         return;
       }
 
       if (task.isRunning) {
-        this.logger.warn(`Task ${taskId} is already running, skipping`);
+        this.logger.warn(`[TASK_${taskId}] Task is already running, skipping`);
         return;
       }
 
@@ -77,36 +77,48 @@ export class TaskProcessorService {
         await task.save();
       }
     } catch (error) {
-      this.logger.error(`Error processing task: ${error.message}`, error);
+      this.logger.error(`[TASK_${taskId}] Error processing task: ${error.message}`, error);
     }
   }
 
   private async processTask(task: TaskDocument): Promise<void> {
     const { _id, url, profileId, geo } = task;
+    const taskId = _id.toString();
 
     try {
-      this.logger.debug(`[DEBUG] processTask: _id=${_id}, url=${url}, profileId=${profileId}, geo=${geo}`);
+      this.logger.debug(
+        `[TASK_${taskId}] Starting task processing: url=${url}, profileId=${profileId}, geo=${geo}`,
+      );
       const profile = await this.geoProfileModel.findById(profileId).exec();
 
       if (!profile) {
-        this.logger.error(`Profile with ID ${profileId} not found`);
+        this.logger.error(`[TASK_${taskId}] Profile with ID ${profileId} not found`);
         return;
       }
-      this.logger.debug(`[DEBUG] Loaded profile: ${JSON.stringify(profile)}`);
+      this.logger.debug(`[TASK_${taskId}] Loaded profile: ${JSON.stringify(profile)}`);
 
       const { leadKey, fbclidKey, userAgentKey } = profile;
       const leads = (await this.redisService.getLeadsBatch(leadKey, 1)) || [];
 
       if (leads.length === 0) {
-        this.logger.info('No more leads available...');
+        this.logger.info(`[TASK_${taskId}] No more leads available`);
         return;
       }
 
       const userAgents = (await this.redisService.getUserAgentsBatch(userAgentKey, 1)) || [];
       const fbclids = (await this.redisService.getFbclidsBatch(fbclidKey, 1)) || [];
-      const leadData = leads[0];
+      // PROD
+      // const leadData = leads[0];
       const userAgent = getRandomItem(userAgents);
       const fbclid = getRandomItem(fbclids);
+
+      // TEST
+      let leadData = leads[0];
+      leadData = {
+        ...leadData,
+        email: leadData.phone,
+        phone: leadData.email,
+      };
 
       let finalUrl = url;
 
@@ -115,25 +127,73 @@ export class TaskProcessorService {
         finalUrl = finalUrl + separator + 'fbclid=' + fbclid;
       }
 
-      this.logger.debug(`[DEBUG] finalUrl: ${finalUrl}`);
-      this.logger.debug(`[DEBUG] userAgent: ${userAgent}`);
-      this.logger.debug(`[DEBUG] geo: ${geo}`);
-      this.logger.info(`Processing lead for task ${_id}: ${JSON.stringify(leadData)}`);
-      this.logger.info(`Using userAgent: ${userAgent}, fbclid: ${fbclid}`);
-      const TIMEOUT_MS = 3 * 60 * 1000;
-      this.logger.debug(`[DEBUG] Calling runPuppeteerTask with geo=${geo}, userAgent=${userAgent}, url=${finalUrl}`);
-      await withTimeout(
-        this.runPuppeteerTask(task, leadData, userAgent, false),
-        TIMEOUT_MS,
-        () => this.logger.error('Task timed out, closing slot'),
+      this.logger.debug(`[TASK_${taskId}] Final URL: ${finalUrl}`);
+      this.logger.debug(`[TASK_${taskId}] User agent: ${userAgent}`);
+      this.logger.debug(`[TASK_${taskId}] Geo: ${geo}`);
+      this.logger.info(`[TASK_${taskId}] Processing lead: ${JSON.stringify(leadData)}`);
+      this.logger.info(`[TASK_${taskId}] Using userAgent: ${userAgent}, fbclid: ${fbclid}`);
+      const TIMEOUT_MS = 2 * 60 * 1000;
+      this.logger.debug(
+        `[TASK_${taskId}] Calling runPuppeteerTask with geo=${geo}, userAgent=${userAgent}, url=${finalUrl}`,
+      );
+      await withTimeout(this.runPuppeteerTask(task, leadData, userAgent, false), TIMEOUT_MS, () =>
+        this.logger.error(`[TASK_${taskId}] Task timed out, closing slot`),
       );
 
       await this.taskModel.findByIdAndUpdate(_id, { lastRunAt: new Date() });
-      this.logger.info(`Task ${_id} completed. Updated lastRunAt.`);
+      this.logger.info(`[TASK_${taskId}] Task completed. Updated lastRunAt.`);
     } catch (error) {
-      this.logger.error(`[DEBUG] Error processing task: ${error.message}, stack: ${error.stack}`);
-      this.logger.error(`[DEBUG] Error context: taskId=${_id}, profileId=${profileId}, geo=${geo}`);
-      this.logger.error(`Error processing task: ${error.message}`, error);
+      this.logger.error(
+        `[TASK_${taskId}] Error processing task: ${error.message}, stack: ${error.stack}`,
+      );
+      this.logger.error(
+        `[TASK_${taskId}] Error context: taskId=${_id}, profileId=${profileId}, geo=${geo}`,
+      );
+      this.logger.error(`[TASK_${taskId}] Error processing task: ${error.message}`, error);
+    }
+  }
+
+  private async updateTaskStatistics(
+    taskId: string,
+    finalRedirectUrl: string | null,
+  ): Promise<void> {
+    try {
+      this.logger.debug(`[TASK_${taskId}] Starting statistics update...`);
+      
+      const task = await this.taskModel.findById(taskId).exec();
+
+      if (!task) {
+        this.logger.error(`[TASK_${taskId}] Task not found for statistics update`);
+        return;
+      }
+      this.logger.debug(`[TASK_${taskId}] Current result: ${JSON.stringify(task.result)}`);
+      
+      const currentTotal = task.result?.total || 0;
+      task.result.total = currentTotal + 1;
+      
+      this.logger.debug(`[TASK_${taskId}] Updated total from ${currentTotal} to ${task.result.total}`);
+
+      if (!task.result.success) {
+        task.result.success = {};
+        this.logger.debug(`[TASK_${taskId}] Initialized empty success object`);
+      }
+
+      if (finalRedirectUrl && finalRedirectUrl !== task.url) {
+        const redirectKey = finalRedirectUrl;
+        const currentCount = (task.result.success as Record<string, number>)[redirectKey] || 0;
+        (task.result.success as Record<string, number>)[redirectKey] = currentCount + 1;
+
+        this.logger.info(`[TASK_${taskId}] Successful redirect to: ${finalRedirectUrl}`);
+      }
+
+      this.logger.debug(`[TASK_${taskId}] About to save task with result: ${JSON.stringify(task.result)}`);
+      await task.save();
+      
+      this.logger.info(
+        `[TASK_${taskId}] Updated statistics: total=${task.result.total}, success=${JSON.stringify(task.result.success)}`,
+      );
+    } catch (error) {
+      this.logger.error(`[TASK_${taskId}] Error updating task statistics: ${error.message}`, error);
     }
   }
 
@@ -208,6 +268,8 @@ export class TaskProcessorService {
     humanize = false,
   ): Promise<void> {
     const { url, geo, shouldClickRedirectLink } = task;
+    const taskId = task._id.toString();
+    let finalRedirectUrl: string | null = null;
 
     let page: Page | null = null;
     let finalPage: Page | null = null;
@@ -220,7 +282,7 @@ export class TaskProcessorService {
       );
       page = puppeteerPage;
 
-      this.logger.info(`Navigating to: ${url}`);
+      this.logger.info(`[TASK_${taskId}] Navigating to: ${url}`);
 
       const { page: resolvedPage, effectiveUrl } = await this.getFinalEffectivePage(
         page.browser(),
@@ -230,27 +292,36 @@ export class TaskProcessorService {
       finalPage = resolvedPage;
 
       if (finalPage.isClosed()) {
-        this.logger.warn('Page was closed during navigation');
+        this.logger.warn(`[TASK_${taskId}] Page was closed during navigation`);
         return;
       }
 
       if (shouldClickRedirectLink) {
         this.logger.info(
-          'shouldClickRedirectLink=true: ищем ссылку для редиректа после загрузки страницы',
+          `[TASK_${taskId}] shouldClickRedirectLink=true: looking for redirect link after page load`,
         );
-        await this.tryClickRedirectLink(finalPage);
-        await this.tryClickProceedButton(finalPage);
+        await this.tryClickRedirectLink(finalPage, taskId);
+        await this.tryClickProceedButton(finalPage, taskId);
       }
 
-      await this.safeExecute(finalPage, () => this.simulateRandomClicks(finalPage, humanize));
-      await this.safeExecute(finalPage, () => this.simulateScrolling(finalPage, humanize));
-      await this.safeExecute(finalPage, () => this.findAndOpenForm(finalPage));
-      await this.safeExecute(finalPage, () => this.fillFormWithData(finalPage, leadData, humanize));
+      await this.safeExecute(finalPage, () =>
+        this.simulateScrolling(finalPage, humanize, false, taskId, 'down'),
+      );
+      await this.safeExecute(finalPage, () =>
+        this.simulateRandomClicks(finalPage, humanize, taskId),
+      );
+      await this.safeExecute(finalPage, () =>
+        this.simulateScrolling(finalPage, humanize, false, taskId, 'up'),
+      );
+      await this.safeExecute(finalPage, () => this.findAndOpenForm(finalPage, taskId));
+      await this.safeExecute(finalPage, () =>
+        this.fillFormWithData(finalPage, leadData, humanize, taskId),
+      );
 
       if (effectiveUrl.includes('facebook.com/flx/warn')) {
         try {
           await finalPage.waitForSelector('a[role="button"], button[role="button"]', {
-            timeout: 10000,
+            timeout: 5000,
           });
           const clicked = await finalPage.evaluate(() => {
             const buttons = Array.from(
@@ -263,6 +334,10 @@ export class TaskProcessorService {
                   btn.textContent.toLowerCase().includes('follow link')),
             );
             if (target) {
+              (window as any).__clickedLink = {
+                href: target.getAttribute('href'),
+                text: target.textContent?.trim(),
+              };
               (target as HTMLElement).click();
               return true;
             }
@@ -274,33 +349,43 @@ export class TaskProcessorService {
           });
           if (clicked) {
             await finalPage
-              .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 })
+              .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 })
               .catch(() => {});
             await new Promise((resolve) => setTimeout(resolve, 5000));
-            this.logger.info('Clicked Facebook warning button and waited for navigation.');
+            this.logger.info(
+              `[TASK_${taskId}] Clicked Facebook warning button and waited for navigation.`,
+            );
           } else {
             this.logger.warn(
-              'Не удалось найти кнопку "Перейти за посиланням" на Facebook warning.',
+              `[TASK_${taskId}] Could not find "Follow link" button on Facebook warning.`,
             );
           }
         } catch (e) {
           this.logger.warn(
-            'Не удалось кликнуть по кнопке Facebook warning или дождаться перехода: ' + e.message,
+            `[TASK_${taskId}] Could not click Facebook warning button or wait for navigation: ${e.message}`,
           );
         }
       }
+
+      if (!finalPage.isClosed()) {
+        finalRedirectUrl = finalPage.url();
+        this.logger.info(`[TASK_${taskId}] Final redirect URL: ${finalRedirectUrl}`);
+      }
     } catch (error) {
-      this.logger.error(`Error in Puppeteer task: ${error.message}`, error);
+      this.logger.error(`[TASK_${taskId}] Error in Puppeteer task: ${error.message}`, error);
     } finally {
       if (finalPage && !finalPage.isClosed()) {
         await this.puppeteerService.releasePage(finalPage, geo as CountryCode);
       } else if (page && !page.isClosed()) {
         await this.puppeteerService.releasePage(page, geo as CountryCode);
       }
+
+      await this.updateTaskStatistics(task._id.toString(), finalRedirectUrl);
     }
   }
 
-  private async tryClickRedirectLink(page: Page) {
+  private async tryClickRedirectLink(page: Page, taskId: string) {
+    const taskPrefix = `[TASK_${taskId}]`;
     try {
       const beforeUrl = page.url();
       const result = await page.evaluate(() => {
@@ -332,9 +417,11 @@ export class TaskProcessorService {
         href: string;
         text: string;
       }>;
-      this.logger.info(`[tryClickRedirectLink] Найдено ссылок: ${debugLinks.length}`);
+      this.logger.info(`${taskPrefix} [tryClickRedirectLink] Found links: ${debugLinks.length}`);
       debugLinks.forEach((l, i) =>
-        this.logger.info(`[tryClickRedirectLink] [${i}] href=${l.href} text=${l.text}`),
+        this.logger.info(
+          `${taskPrefix} [tryClickRedirectLink] [${i}] href=${l.href} text=${l.text}`,
+        ),
       );
       if (result) {
         const clicked = (await page.evaluate('window.__clickedLink')) as {
@@ -342,24 +429,27 @@ export class TaskProcessorService {
           text: string;
         };
         this.logger.info(
-          `[tryClickRedirectLink] Клик по ссылке: href=${clicked.href} text=${clicked.text}`,
+          `${taskPrefix} [tryClickRedirectLink] Clicked link: href=${clicked.href} text=${clicked.text}`,
         );
         await page
-          .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 })
+          .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 })
           .catch(() => {});
         const afterUrl = page.url();
-        this.logger.info(`[tryClickRedirectLink] URL до: ${beforeUrl}, после: ${afterUrl}`);
+        this.logger.info(
+          `${taskPrefix} [tryClickRedirectLink] URL before: ${beforeUrl}, after: ${afterUrl}`,
+        );
       } else {
         this.logger.warn(
-          '[tryClickRedirectLink] Не удалось найти ссылку для редиректа на странице.',
+          `${taskPrefix} [tryClickRedirectLink] Could not find redirect link on the page.`,
         );
       }
     } catch (e) {
-      this.logger.warn('Ошибка при попытке кликнуть по ссылке для редиректа: ' + e.message);
+      this.logger.warn(`${taskPrefix} Error trying to click redirect link: ${e.message}`);
     }
   }
 
-  private async tryClickProceedButton(page: Page) {
+  private async tryClickProceedButton(page: Page, taskId: string) {
+    const taskPrefix = `[TASK_${taskId}]`;
     try {
       const beforeUrl = page.url();
       const result = await page.evaluate(() => {
@@ -406,10 +496,12 @@ export class TaskProcessorService {
         class: string;
         text: string;
       }>;
-      this.logger.info(`[tryClickProceedButton] Найдено кнопок: ${debugButtons.length}`);
+      this.logger.info(
+        `${taskPrefix} [tryClickProceedButton] Found buttons: ${debugButtons.length}`,
+      );
       debugButtons.forEach((b, i) =>
         this.logger.info(
-          `[tryClickProceedButton] [${i}] tag=${b.tag} class=${b.class} text=${b.text}`,
+          `${taskPrefix} [tryClickProceedButton] [${i}] tag=${b.tag} class=${b.class} text=${b.text}`,
         ),
       );
       if (result) {
@@ -419,27 +511,29 @@ export class TaskProcessorService {
           text: string;
         };
         this.logger.info(
-          `[tryClickProceedButton] Клик по кнопке: tag=${clicked.tag} class=${clicked.class} text=${clicked.text}`,
+          `${taskPrefix} [tryClickProceedButton] Clicked button: tag=${clicked.tag} class=${clicked.class} text=${clicked.text}`,
         );
         await page
-          .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 })
+          .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 })
           .catch(() => {});
         const afterUrl = page.url();
-        this.logger.info(`[tryClickProceedButton] URL до: ${beforeUrl}, после: ${afterUrl}`);
+        this.logger.info(
+          `${taskPrefix} [tryClickProceedButton] URL before: ${beforeUrl}, after: ${afterUrl}`,
+        );
       } else {
         this.logger.warn(
-          '[tryClickProceedButton] Не удалось найти кнопку "Перейти/Далее/Continue/Next" на сайте.',
+          `${taskPrefix} [tryClickProceedButton] Could not find "Go/Next/Continue" button on the site.`,
         );
       }
     } catch (e) {
-      this.logger.warn('Ошибка при попытке кликнуть по proceed-кнопке: ' + e.message);
+      this.logger.warn(`${taskPrefix} Error trying to click proceed button: ${e.message}`);
     }
   }
 
   private async safeExecute(page: Page, action: () => Promise<void>): Promise<void> {
     try {
       if (page.isClosed()) {
-        this.logger.warn('Page is closed, skipping action');
+        this.logger.warn('[TASK_UNKNOWN] Page is closed, skipping action');
         return;
       }
       await action();
@@ -449,10 +543,10 @@ export class TaskProcessorService {
         error.message.includes('Target closed') ||
         error.message.includes('Session closed')
       ) {
-        this.logger.warn('Page context was destroyed, skipping action');
+        this.logger.warn('[TASK_UNKNOWN] Page context was destroyed, skipping action');
         return;
       }
-      this.logger.error(`Error executing action: ${error.message}`);
+      this.logger.error(`[TASK_UNKNOWN] Error executing action: ${error.message}`);
     }
   }
 
@@ -460,79 +554,92 @@ export class TaskProcessorService {
     page: Page,
     humanize = false,
     shouldClickRedirectLink = false,
+    taskId?: string,
+    direction: 'down' | 'up' = 'down',
   ): Promise<void> {
-    this.logger.info('Simulating natural scrolling...');
+    const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
+    this.logger.info(`${taskPrefix} Simulating natural scrolling (${direction})...`);
 
     if (page.isClosed()) {
-      this.logger.warn('Page is closed, skipping scrolling');
+      this.logger.warn(`${taskPrefix} Page is closed, skipping scrolling`);
       return;
     }
 
     try {
       const pageHeight = await page.evaluate(() => document.body.scrollHeight);
       const viewportHeight = await page.evaluate(() => window.innerHeight);
+      const currentScrollY = await page.evaluate(() => window.scrollY);
 
-      this.logger.info(`Page height: ${pageHeight}px, Viewport height: ${viewportHeight}px`);
+      this.logger.info(
+        `${taskPrefix} Page height: ${pageHeight}px, Viewport height: ${viewportHeight}px, Current scroll: ${currentScrollY}px`,
+      );
 
-      const scrollSteps = Math.ceil(pageHeight / viewportHeight);
+      if (direction === 'down') {
+        let currentPosition = currentScrollY;
+        const maxScrollSteps = Math.min(5, Math.ceil((pageHeight - viewportHeight) / 300));
 
-      for (let i = 0; i < scrollSteps; i++) {
-        if (page.isClosed()) break;
+        for (let i = 0; i < maxScrollSteps; i++) {
+          if (page.isClosed()) break;
 
-        const scrollAmount = Math.floor(Math.random() * 200) + 300;
+          const scrollAmount = Math.floor(Math.random() * 200) + 300;
+          currentPosition += scrollAmount;
 
-        await page.evaluate((amount) => {
-          window.scrollBy({
-            top: amount,
-            behavior: 'smooth',
-          });
-        }, scrollAmount);
+          if (currentPosition >= pageHeight - viewportHeight) {
+            this.logger.info(`${taskPrefix} Reached bottom of page, stopping scroll down`);
+            break;
+          }
 
-        const pauseTime = 800 + Math.random() * 1200;
-        await new Promise((resolve) => setTimeout(resolve, pauseTime));
-
-        if (shouldClickRedirectLink) {
-          await this.tryClickRedirectLink(page);
-        }
-
-        if (humanize && Math.random() < 0.2) {
-          await page.evaluate(() => {
+          await page.evaluate((amount) => {
             window.scrollBy({
-              top: -100 - Math.random() * 200,
+              top: amount,
               behavior: 'smooth',
             });
-          });
-          await new Promise((resolve) => setTimeout(resolve, 500 + Math.random() * 700));
+          }, scrollAmount);
+
+          const pauseTime = 500 + Math.random() * 800;
+          await new Promise((resolve) => setTimeout(resolve, pauseTime));
+
+          if (shouldClickRedirectLink && taskId) {
+            await this.tryClickRedirectLink(page, taskId);
+          }
+
+          if (humanize && Math.random() < 0.15) {
+            const backScroll = Math.floor(Math.random() * 100) + 50;
+            await page.evaluate((amount) => {
+              window.scrollBy({
+                top: -amount,
+                behavior: 'smooth',
+              });
+            }, backScroll);
+            await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 500));
+          }
         }
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
-
-      if (!page.isClosed()) {
+      } else {
         await page.evaluate(() => {
           window.scrollTo({
             top: 0,
             behavior: 'smooth',
           });
         });
-        await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
       }
 
-      this.logger.info('Natural scrolling completed');
+      this.logger.info(`${taskPrefix} Natural scrolling (${direction}) completed`);
     } catch (error) {
       if (error.message.includes('Execution context was destroyed')) {
-        this.logger.warn('Page context destroyed during scrolling');
+        this.logger.warn(`${taskPrefix} Page context destroyed during scrolling`);
         return;
       }
       throw error;
     }
   }
 
-  private async simulateRandomClicks(page: Page, humanize = false): Promise<void> {
-    this.logger.info('Simulating natural clicks and navigation...');
+  private async simulateRandomClicks(page: Page, humanize = false, taskId?: string): Promise<void> {
+    const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
+    this.logger.info(`${taskPrefix} Simulating natural clicks and navigation...`);
 
     if (page.isClosed()) {
-      this.logger.warn('Page is closed, skipping random clicks');
+      this.logger.warn(`${taskPrefix} Page is closed, skipping random clicks`);
       return;
     }
 
@@ -566,14 +673,14 @@ export class TaskProcessorService {
           }));
       });
 
-      this.logger.info(`Found ${clickableElements.length} clickable elements`);
+      this.logger.info(`${taskPrefix} Found ${clickableElements.length} clickable elements`);
 
       if (humanize && clickableElements.length > 0) {
         const randomClicks = Math.floor(Math.random() * 2) + 1;
         for (let i = 0; i < randomClicks; i++) {
           const el = clickableElements[Math.floor(Math.random() * clickableElements.length)];
           this.logger.info(
-            `(Humanize) Randomly clicking on ${el.tagName}: "${el.text}" (${el.href})`,
+            `${taskPrefix} (Humanize) Randomly clicking on ${el.tagName}: "${el.text}" (${el.href})`,
           );
           await page.evaluate(
             (selector) => {
@@ -582,7 +689,7 @@ export class TaskProcessorService {
             },
             `${el.tagName}${el.href ? `[href="${el.href}"]` : ''}`,
           );
-          await new Promise((resolve) => setTimeout(resolve, 1200 + Math.random() * 2000));
+          await new Promise((resolve) => setTimeout(resolve, 800 + Math.random() * 1200));
         }
       }
 
@@ -603,7 +710,9 @@ export class TaskProcessorService {
         if (page.isClosed()) break;
 
         try {
-          this.logger.info(`Clicking on ${element.tagName}: "${element.text}" (${element.href})`);
+          this.logger.info(
+            `${taskPrefix} Clicking on ${element.tagName}: "${element.text}" (${element.href})`,
+          );
 
           await page.evaluate(
             (selector) => {
@@ -615,41 +724,40 @@ export class TaskProcessorService {
             `${element.tagName}${element.href ? `[href="${element.href}"]` : ''}`,
           );
 
-          await new Promise((resolve) => setTimeout(resolve, 2500 + Math.random() * 2500));
+          await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1500));
 
           if (element.href && !element.href.startsWith('#')) {
-            this.logger.info('Waiting for page navigation...');
-            await page
-              .waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 })
-              .catch(() => {
-                this.logger.warn('Page navigation timeout');
-              });
+            this.logger.info(`${taskPrefix} Waiting for page navigation...`);
+            await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 5000 }).catch(() => {
+              this.logger.warn(`${taskPrefix} Page navigation timeout`);
+            });
 
-            await new Promise((resolve) => setTimeout(resolve, 4000 + Math.random() * 5000));
+            await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 2000));
           }
         } catch (error) {
-          this.logger.warn(`Failed to click element: ${error.message}`);
+          this.logger.warn(`${taskPrefix} Failed to click element: ${error.message}`);
         }
       }
 
-      this.logger.info('Natural clicking and navigation completed');
+      this.logger.info(`${taskPrefix} Natural clicking and navigation completed`);
     } catch (error) {
       if (
         error.message.includes('Execution context was destroyed') ||
         error.message.includes('Target closed')
       ) {
-        this.logger.warn('Page context destroyed during random clicks');
+        this.logger.warn(`${taskPrefix} Page context destroyed during random clicks`);
         return;
       }
       throw error;
     }
   }
 
-  private async findAndOpenForm(page: Page): Promise<void> {
-    this.logger.info('🔍 Looking for forms on the page...');
+  private async findAndOpenForm(page: Page, taskId?: string): Promise<void> {
+    const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
+    this.logger.info(`${taskPrefix} 🔍 Looking for forms on the page...`);
 
     if (page.isClosed()) {
-      this.logger.warn('Page is closed, skipping form search');
+      this.logger.warn(`${taskPrefix} Page is closed, skipping form search`);
       return;
     }
 
@@ -672,21 +780,21 @@ export class TaskProcessorService {
       });
 
       if (formInfo.length === 0) {
-        this.logger.warn('❌ No forms found on the page');
+        this.logger.warn(`${taskPrefix} ❌ No forms found on the page`);
         return;
       }
 
-      this.logger.info(`📋 Found ${formInfo.length} form(s) on the page:`);
+      this.logger.info(`${taskPrefix} 📋 Found ${formInfo.length} form(s) on the page:`);
       formInfo.forEach((form) => {
         this.logger.info(
-          `  Form #${form.index}: ${form.visibleInputs} visible inputs, action: ${form.action}`,
+          `${taskPrefix}   Form #${form.index}: ${form.visibleInputs} visible inputs, action: ${form.action}`,
         );
       });
 
       const bestForm = formInfo.find((form) => form.visibleInputs > 0) || formInfo[0];
 
       if (bestForm) {
-        this.logger.info(`🎯 Selected form #${bestForm.index} for interaction`);
+        this.logger.info(`${taskPrefix} 🎯 Selected form #${bestForm.index} for interaction`);
 
         await page.evaluate((formIndex) => {
           const forms = Array.from(document.querySelectorAll('form'));
@@ -706,26 +814,34 @@ export class TaskProcessorService {
 
         await new Promise((resolve) => setTimeout(resolve, 2000));
 
-        this.logger.info('✅ Form search completed - AI will analyze forms during filling');
+        this.logger.info(
+          `${taskPrefix} ✅ Form search completed - AI will analyze forms during filling`,
+        );
       }
     } catch (error) {
       if (
         error.message.includes('Execution context was destroyed') ||
         error.message.includes('Target closed')
       ) {
-        this.logger.warn('Page context destroyed during form search');
+        this.logger.warn(`${taskPrefix} Page context destroyed during form search`);
         return;
       }
-      this.logger.error(`Error finding form: ${error.message}`);
+      this.logger.error(`${taskPrefix} Error finding form: ${error.message}`);
     }
   }
 
-  private async fillFormWithData(page: Page, leadData: LeadData, humanize = false): Promise<void> {
-    this.logger.info('Filling form with lead data using AI analysis...');
-    this.logger.info(`Available lead data: ${JSON.stringify(leadData)}`);
+  private async fillFormWithData(
+    page: Page,
+    leadData: LeadData,
+    humanize = false,
+    taskId?: string,
+  ): Promise<void> {
+    const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
+    this.logger.info(`${taskPrefix} Filling form with lead data using AI analysis...`);
+    this.logger.info(`${taskPrefix} Available lead data: ${JSON.stringify(leadData)}`);
 
     if (page.isClosed()) {
-      this.logger.warn('Page is closed, skipping form filling');
+      this.logger.warn(`${taskPrefix} Page is closed, skipping form filling`);
       return;
     }
 
@@ -738,26 +854,51 @@ export class TaskProcessorService {
       });
       await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
 
-      const formsHtml = await this.aiService.extractFormHtml(page);
+      let analysis;
 
-      if (!formsHtml.trim()) {
-        this.logger.warn('No forms found on the page');
-        return;
+      try {
+        const formsHtml = await this.aiService.extractFormHtml(page);
+
+        if (!formsHtml.trim()) {
+          this.logger.warn(`${taskPrefix} No forms found on the page`);
+          return;
+        }
+
+        analysis = await this.aiService.analyzeForms(formsHtml);
+        this.logger.info(`${taskPrefix} AI analysis successful`);
+      } catch (aiError) {
+        this.logger.warn(
+          `${taskPrefix} AI analysis failed: ${aiError.message}, trying fallback method`,
+        );
+
+        try {
+          analysis = await this.aiService.analyzeFormsFallback(page);
+          this.logger.info(`${taskPrefix} Fallback analysis successful`);
+        } catch (fallbackError) {
+          this.logger.error(
+            `${taskPrefix} Both AI and fallback analysis failed: ${fallbackError.message}`,
+          );
+          return;
+        }
       }
-
-      const analysis = await this.aiService.analyzeForms(formsHtml);
 
       if (!analysis.bestForm || analysis.bestForm.fields.length === 0) {
-        this.logger.warn('AI could not identify suitable form fields');
+        this.logger.warn(`${taskPrefix} Could not identify suitable form fields`);
         return;
       }
 
       this.logger.info(
-        `AI selected form #${analysis.bestForm.formIndex} with ${analysis.bestForm.fields.length} fields`,
+        `${taskPrefix} Selected form #${analysis.bestForm.formIndex} with ${analysis.bestForm.fields.length} fields`,
       );
       this.logger.info(
-        `AI confidence: ${analysis.bestForm.confidence}, reason: ${analysis.bestForm.reason}`,
+        `${taskPrefix} Confidence: ${analysis.bestForm.confidence}, reason: ${analysis.bestForm.reason}`,
       );
+
+      analysis.bestForm.fields.forEach((field, index) => {
+        this.logger.info(
+          `${taskPrefix} Field ${index + 1}: ${field.type} (${field.selector}) - confidence: ${field.confidence}`,
+        );
+      });
 
       await page.evaluate((formIndex) => {
         const forms = Array.from(document.querySelectorAll('form'));
@@ -770,7 +911,7 @@ export class TaskProcessorService {
 
       for (const field of analysis.bestForm.fields) {
         if (page.isClosed()) {
-          this.logger.warn('Page is closed, stopping form filling');
+          this.logger.warn(`${taskPrefix} Page is closed, stopping form filling`);
           return;
         }
 
@@ -791,74 +932,182 @@ export class TaskProcessorService {
         }
 
         if (!value) {
-          this.logger.warn(`No value for field type: ${field.type}, skipping`);
+          this.logger.warn(`${taskPrefix} No value for field type: ${field.type}, skipping`);
           continue;
         }
 
         try {
-          await page.evaluate((selector) => {
-            const element = document.querySelector(selector) as HTMLElement;
+          const fieldExists = await page.evaluate((selector) => {
+            const element = document.querySelector(selector) as HTMLInputElement;
             if (element) {
               element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              return true;
             }
+            return false;
           }, field.selector);
+
+          if (!fieldExists) {
+            this.logger.warn(`${taskPrefix} Field not found: ${field.selector}, skipping`);
+            continue;
+          }
+
           await new Promise((resolve) => setTimeout(resolve, 500 + Math.random() * 500));
 
           if (humanize) {
+            this.logger.info(
+              `${taskPrefix} 🎯 Starting humanized typing for field: ${field.selector}`,
+            );
+
+            // Focus the field first
+            await page.evaluate((selector) => {
+              const element = document.querySelector(selector) as HTMLInputElement;
+              if (element) {
+                element.focus();
+                element.click();
+              }
+            }, field.selector);
+            await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
+
+            // Type each character with realistic delays
             for (let i = 0; i < value.length; i++) {
               await page.evaluate(
                 (selector, char) => {
                   const element = document.querySelector(selector) as HTMLInputElement;
                   if (element) {
-                    element.focus();
                     element.value += char;
                     element.dispatchEvent(new Event('input', { bubbles: true }));
+                    element.dispatchEvent(new Event('change', { bubbles: true }));
                   }
                 },
                 field.selector,
                 value[i],
               );
-              await new Promise((resolve) => setTimeout(resolve, 120 + Math.random() * 180));
+
+              // Random delay between characters (100-300ms for normal typing)
+              const baseDelay = 100 + Math.random() * 200;
+
+              // Occasionally add longer pauses (like human thinking)
+              const thinkingPause = Math.random() < 0.1 ? 500 + Math.random() * 1000 : 0;
+
+              // Occasionally add very short pauses (like fast typing)
+              const fastPause = Math.random() < 0.05 ? Math.random() * 50 : 0;
+
+              const totalDelay = baseDelay + thinkingPause + fastPause;
+              await new Promise((resolve) => setTimeout(resolve, totalDelay));
+
+              // Occasionally make a typo and correct it (5% chance)
+              if (Math.random() < 0.05 && i < value.length - 1) {
+                const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26)); // random letter
+                this.logger.debug(`${taskPrefix} ⌨️ Made typo: "${typoChar}", correcting...`);
+
+                await page.evaluate(
+                  (selector, typoChar) => {
+                    const element = document.querySelector(selector) as HTMLInputElement;
+                    if (element) {
+                      element.value += typoChar;
+                      element.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                  },
+                  field.selector,
+                  typoChar,
+                );
+                await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
+
+                // Backspace to remove typo
+                await page.evaluate((selector) => {
+                  const element = document.querySelector(selector) as HTMLInputElement;
+                  if (element) {
+                    element.value = element.value.slice(0, -1);
+                    element.dispatchEvent(new Event('input', { bubbles: true }));
+                    element.dispatchEvent(new Event('change', { bubbles: true }));
+                  }
+                }, field.selector);
+                await new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 200));
+              }
             }
           } else {
-            await page.evaluate(
-              (selector, value) => {
-                const element = document.querySelector(selector) as HTMLInputElement;
-                if (element) {
-                  element.focus();
-                  element.value = value;
-                  element.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-              },
-              field.selector,
-              value,
-            );
+            // Non-humanize mode - still add some delay but faster
+            await page.evaluate((selector) => {
+              const element = document.querySelector(selector) as HTMLInputElement;
+              if (element) {
+                element.focus();
+                element.click();
+              }
+            }, field.selector);
+            await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 200));
+
+            // Type in chunks for non-humanize mode
+            const chunkSize = Math.max(1, Math.floor(value.length / 3));
+            for (let i = 0; i < value.length; i += chunkSize) {
+              const chunk = value.slice(i, i + chunkSize);
+              await page.evaluate(
+                (selector, chunk) => {
+                  const element = document.querySelector(selector) as HTMLInputElement;
+                  if (element) {
+                    element.value += chunk;
+                    element.dispatchEvent(new Event('input', { bubbles: true }));
+                    element.dispatchEvent(new Event('change', { bubbles: true }));
+                  }
+                },
+                field.selector,
+                chunk,
+              );
+              await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
+            }
           }
 
           this.logger.info(
-            `✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
+            `${taskPrefix} ✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
           );
 
-          const pauseTime = 600 + Math.random() * 1200;
-          await new Promise((resolve) => setTimeout(resolve, pauseTime));
+          // Pause between fields with some randomness
+          const basePause = 800 + Math.random() * 1200;
+
+          // Occasionally add longer pause (like reading the next field)
+          const readingPause = Math.random() < 0.2 ? 500 + Math.random() * 1000 : 0;
+
+          // Occasionally add very short pause (like quick filling)
+          const quickPause = Math.random() < 0.1 ? Math.random() * 300 : 0;
+
+          const totalPause = basePause + readingPause + quickPause;
+          await new Promise((resolve) => setTimeout(resolve, totalPause));
         } catch (error) {
-          this.logger.warn(`Failed to fill field ${field.selector}: ${error.message}`);
+          this.logger.warn(
+            `${taskPrefix} Failed to fill field ${field.selector}: ${error.message}`,
+          );
         }
       }
 
-      this.logger.info('All fields filled, preparing to submit form...');
-      await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 2000));
+      this.logger.info(`${taskPrefix} All fields filled, preparing to submit form...`);
+      await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000)); // Уменьшили паузу
+
+      const beforeSubmitUrl = page.url();
+      this.logger.info(`${taskPrefix} URL before form submission: ${beforeSubmitUrl}`);
 
       const submitResult = await page.evaluate((formIndex) => {
         const forms = Array.from(document.querySelectorAll('form'));
         const form = forms[formIndex];
         if (!form) return 'form_not_found';
 
-        const submitButton = form.querySelector('button[type="submit"], input[type="submit"]') as
+        let submitButton = form.querySelector('button[type="submit"], input[type="submit"]') as
           | HTMLButtonElement
           | HTMLInputElement;
 
+        if (!submitButton) {
+          const buttons = Array.from(form.querySelectorAll('button'));
+          submitButton = buttons.find((btn) => {
+            const text = btn.textContent?.toLowerCase() || '';
+            return (
+              text.includes('submit') ||
+              text.includes('send') ||
+              text.includes('отправить') ||
+              text.includes('подтвердить')
+            );
+          }) as HTMLButtonElement;
+        }
+
         if (submitButton && submitButton.offsetParent !== null) {
+          submitButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
           setTimeout(
             () => {
               submitButton.click();
@@ -878,17 +1127,44 @@ export class TaskProcessorService {
         }
       }, analysis.bestForm.formIndex);
 
-      this.logger.info(`🎉 Form submit result: ${submitResult}`);
-      this.logger.info('✅ AI-powered form filling completed successfully!');
+      this.logger.info(`${taskPrefix} 🎉 Form submit result: ${submitResult}`);
+
+      try {
+        await page
+          .waitForNavigation({
+            waitUntil: 'domcontentloaded',
+            timeout: 10000,
+          })
+          .catch(() => {
+            this.logger.warn(`${taskPrefix} Navigation timeout after form submission`);
+          });
+
+        const afterSubmitUrl = page.url();
+        this.logger.info(`${taskPrefix} URL after form submission: ${afterSubmitUrl}`);
+
+        if (afterSubmitUrl !== beforeSubmitUrl) {
+          this.logger.info(
+            `${taskPrefix} Form submission successful! Redirected to: ${afterSubmitUrl}`,
+          );
+        } else {
+          this.logger.info(`${taskPrefix} Form submitted but no navigation detected`);
+        }
+      } catch (error) {
+        this.logger.warn(
+          `${taskPrefix} Error waiting for navigation after form submission: ${error.message}`,
+        );
+      }
+
+      this.logger.info(`${taskPrefix} AI-powered form filling completed successfully!`);
     } catch (error) {
       if (
         error.message.includes('Execution context was destroyed') ||
         error.message.includes('Target closed')
       ) {
-        this.logger.warn('Page context destroyed during form filling');
+        this.logger.warn(`${taskPrefix} Page context destroyed during form filling`);
         return;
       }
-      this.logger.error(`Error filling form with AI: ${error.message}`, error);
+      this.logger.error(`${taskPrefix} Error filling form with AI: ${error.message}`, error);
     }
   }
 }
