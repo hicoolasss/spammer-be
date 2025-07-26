@@ -1,4 +1,4 @@
 export interface TaskResult {
   total: number;
-  success: number;
+  success: Record<string, number>;
 }

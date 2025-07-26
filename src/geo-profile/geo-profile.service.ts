@@ -261,7 +261,7 @@ export class GeoProfileService {
 
     await pipeline.exec();
 
-    unlink(filePath, () => {});
+    await unlink(filePath);
 
     return count;
   }
