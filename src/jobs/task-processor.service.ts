@@ -176,9 +176,24 @@ export class TaskProcessorService {
       }
 
       if (finalRedirectUrl && finalRedirectUrl !== task.url) {
-        const redirectKey = finalRedirectUrl;
+        let foundKey: string | undefined;
+
+        for (const key of Object.keys(task.result.success as Record<string, number>)) {
+          try {
+            if (decodeURIComponent(key) === finalRedirectUrl) {
+              foundKey = key;
+              break;
+            }
+          } catch {
+            // Ignore
+          }
+        }
+
+        const redirectKey = foundKey || encodeURIComponent(finalRedirectUrl);
         const currentCount = (task.result.success as Record<string, number>)[redirectKey] || 0;
         (task.result.success as Record<string, number>)[redirectKey] = currentCount + 1;
+
+        task.markModified('result.success');
 
         this.logger.info(`[TASK_${taskId}] Successful redirect to: ${finalRedirectUrl}`);
       }
