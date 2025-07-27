@@ -14,113 +14,57 @@ export class RedisService {
     private redisClient: RedisClientType,
   ) {}
 
-  async getFbclidData(fbclKey: string): Promise<string | null> {
-    return this.safeRedisCall(
-      async () => {
-        const data = await this.redisClient.lPop(fbclKey);
-        return data as string;
-      },
+  async getFbclidData(fbclKey: string): Promise<string> {
+    return this.getRandomListItem<string>(
+      fbclKey,
+      undefined,
       `No fbcl data found for key: ${fbclKey}`,
-      (data) => `Retrieved fbcl data: ${data}`,
     );
   }
 
-  async getFbclidsBatch(fbclKey: string, count: number): Promise<string[]> {
-    let data = await this.getBatch(fbclKey, count, (item) => item);
-    if (data.length < count && data.length > 0) {
-      while (data.length < count) {
-        data = data.concat(data.slice(0, count - data.length));
-      }
-    }
-    return data.slice(0, count);
-  }
-
-  async getLeadData(leadKey: string): Promise<LeadData | null> {
-    return this.safeRedisCall(
-      async () => {
-        const data = await this.redisClient.lPop(leadKey);
-        return data ? (JSON.parse(data as string) as LeadData) : null;
-      },
-      `No data found for key: ${leadKey}`,
-      (data) => `Retrieved lead data: ${JSON.stringify(data)}`,
-    );
-  }
-
-  async getLeadsBatch(leadKey: string, count: number): Promise<LeadData[]> {
-    return this.getBatch(
+  async getLeadData(leadKey: string): Promise<LeadData> {
+    return this.getRandomListItem<LeadData>(
       leadKey,
-      count,
-      (item) => JSON.parse(item) as LeadData,
+      (v) => JSON.parse(v) as LeadData,
+      `No data found for key: ${leadKey}`,
     );
   }
 
   async getUserAgentData(userAgentKey: string): Promise<string> {
-    const data = (await this.safeRedisCall(
-      () => this.redisClient.lRange(userAgentKey, 0, -1),
-      `No user agents found for key: ${userAgentKey}`,
-      (data) => `Retrieved user agents: ${data}`,
-    )) as string[] | null | undefined;
-
-    const hasNoRedisData = !data || data.length === 0;
-
-    return getRandomItem(hasNoRedisData ? USER_AGENTS : data);
+    return this.getRandomListItem<string>(
+      userAgentKey,
+      undefined,
+      `No user agents found for key: ${userAgentKey}, using fallback`,
+      () => getRandomItem(USER_AGENTS),
+    );
   }
 
-  async getUserAgentsBatch(
-    userAgentKey: string,
-    count: number,
-  ): Promise<string[]> {
-    let data = await this.getBatch(userAgentKey, count, (item) => item);
-    if (!data || data.length === 0) {
-      data = Array.from({ length: count }, () => getRandomItem(USER_AGENTS));
-    } else if (data.length < count) {
-      const needed = count - data.length;
-      const extra = Array.from({ length: needed }, () =>
-        getRandomItem(USER_AGENTS),
-      );
-      data = data.concat(extra);
-    }
-    if (data.length < count) {
-      while (data.length < count) {
-        data = data.concat(data.slice(0, count - data.length));
-      }
-    }
-    return data.slice(0, count);
-  }
-
-  private async getBatch<T>(
+  private async getRandomListItem<T = string>(
     key: string,
-    count: number,
-    parser: (item: string) => T,
-  ): Promise<T[]> {
-    const data = (await this.safeRedisCall(
-      async () => {
-        const arr = await this.redisClient.lRange(key, 0, count - 1);
-        return arr as string[];
-      },
-      `No batch found for key: ${key}`,
-      (data) => `Retrieved batch: ${data}`,
-    )) as string[] | null | undefined;
-    if (!data || data.length === 0) return [];
-    return data.map(parser);
-  }
+    parser?: (v: string) => T,
+    notFoundMsg?: string,
+    fallback?: () => T,
+  ): Promise<T> {
+    const len = await this.redisClient.lLen(key);
 
-  private async safeRedisCall<T>(
-    action: () => Promise<T>,
-    warnMsg: string,
-    infoMsg?: (data: T) => string,
-  ): Promise<T | null> {
-    try {
-      const data = await action();
-      if (!data || (Array.isArray(data) && data.length === 0)) {
-        this.logger.warn(warnMsg);
-        return Array.isArray(data) ? ([] as unknown as T) : null;
-      }
-      if (infoMsg) this.logger.info(infoMsg(data));
-      return data;
-    } catch (error) {
-      this.logger.error(`Redis error: ${error.message}`);
-      throw error;
+    if (!len || len === 0) {
+      const msg = notFoundMsg || `No data found for key: ${key}`;
+      this.logger.error(msg);
+      if (fallback) return fallback();
+      throw new Error(msg);
     }
+
+    const randomIndex = Math.floor(Math.random() * len);
+    const data = await this.redisClient.lIndex(key, randomIndex);
+
+    if (data === null) {
+      const msg = `No data found at index ${randomIndex} for key: ${key}`;
+      this.logger.error(msg);
+      if (fallback) return fallback();
+      throw new Error(msg);
+    }
+
+    this.logger.info(`Retrieved data from ${key}: ${data}`);
+    return parser ? parser(data as string) : (data as T);
   }
 }

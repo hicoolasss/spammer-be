@@ -5,7 +5,6 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Task, TaskDocument } from '@task/task.schema';
 import { LogWrapper } from '@utils';
-import { getRandomItem } from '@utils';
 import { Model } from 'mongoose';
 import { Browser, Page } from 'puppeteer';
 
@@ -98,27 +97,16 @@ export class TaskProcessorService {
       this.logger.debug(`[TASK_${taskId}] Loaded profile: ${JSON.stringify(profile)}`);
 
       const { leadKey, fbclidKey, userAgentKey } = profile;
-      const leads = (await this.redisService.getLeadsBatch(leadKey, 1)) || [];
-
-      if (leads.length === 0) {
-        this.logger.info(`[TASK_${taskId}] No more leads available`);
-        return;
-      }
-
-      const userAgents = (await this.redisService.getUserAgentsBatch(userAgentKey, 1)) || [];
-      const fbclids = (await this.redisService.getFbclidsBatch(fbclidKey, 1)) || [];
-      // PROD
-      // const leadData = leads[0];
-      const userAgent = getRandomItem(userAgents);
-      const fbclid = getRandomItem(fbclids);
+      const leadData = await this.redisService.getLeadData(leadKey);
+      const userAgent = await this.redisService.getUserAgentData(userAgentKey);
+      const fbclid = await this.redisService.getFbclidData(fbclidKey);
 
       // TEST
-      let leadData = leads[0];
-      leadData = {
-        ...leadData,
-        email: leadData.phone,
-        phone: leadData.email,
-      };
+      // leadData = {
+      //   ...leadData,
+      //   email: leadData.phone,
+      //   phone: leadData.email,
+      // };
 
       let finalUrl = url;
 
@@ -159,7 +147,7 @@ export class TaskProcessorService {
   ): Promise<void> {
     try {
       this.logger.debug(`[TASK_${taskId}] Starting statistics update...`);
-      
+
       const task = await this.taskModel.findById(taskId).exec();
 
       if (!task) {
@@ -167,13 +155,22 @@ export class TaskProcessorService {
         return;
       }
       this.logger.debug(`[TASK_${taskId}] Current result: ${JSON.stringify(task.result)}`);
-      
+
+      if (!task.result) {
+        this.logger.warn(
+          `[TASK_${taskId}] Task result is null, initializing default result structure`,
+        );
+        task.result = { total: 0, success: {} };
+      }
+
       const currentTotal = task.result?.total || 0;
       task.result.total = currentTotal + 1;
-      
-      this.logger.debug(`[TASK_${taskId}] Updated total from ${currentTotal} to ${task.result.total}`);
 
-      if (!task.result.success) {
+      this.logger.debug(
+        `[TASK_${taskId}] Updated total from ${currentTotal} to ${task.result.total}`,
+      );
+
+      if (!task.result?.success) {
         task.result.success = {};
         this.logger.debug(`[TASK_${taskId}] Initialized empty success object`);
       }
@@ -186,9 +183,11 @@ export class TaskProcessorService {
         this.logger.info(`[TASK_${taskId}] Successful redirect to: ${finalRedirectUrl}`);
       }
 
-      this.logger.debug(`[TASK_${taskId}] About to save task with result: ${JSON.stringify(task.result)}`);
+      this.logger.debug(
+        `[TASK_${taskId}] About to save task with result: ${JSON.stringify(task.result)}`,
+      );
       await task.save();
-      
+
       this.logger.info(
         `[TASK_${taskId}] Updated statistics: total=${task.result.total}, success=${JSON.stringify(task.result.success)}`,
       );
