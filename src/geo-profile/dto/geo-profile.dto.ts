@@ -7,7 +7,7 @@ export interface GeoProfileDto {
   fbclidKey?: string;
   createdBy: string;
   createdAt: Date;
-  leadCount: number;
+  leadCount?: number;
   userAgentCount?: number;
   fbclidCount?: number;
 }

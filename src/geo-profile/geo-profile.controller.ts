@@ -79,8 +79,6 @@ export class GeoProfileController {
     },
     @Body() dto: UpdateGeoProfileDto,
   ): Promise<GeoProfileDto> {
-    console.log('DTO:', dto);
-    console.log('FILES:', files);
     return this.geoProfileService.updateGeoProfile(profileId, dto, files);
   }
 
