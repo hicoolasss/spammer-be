@@ -1,6 +1,5 @@
 import { TaskStatus } from '@enums';
 import { GeoProfileDto } from '@geo-profile/dto/geo-profile.dto';
-import { TaskResult } from '@interfaces';
 
 export interface TaskDto {
   _id: string;
@@ -10,13 +9,22 @@ export interface TaskDto {
   intervalMinutes: number;
   timeFrom: string;
   timeTo: string;
-  result?: TaskResult;
+  result?: TaskStatisticsDto;
   status: TaskStatus;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
   lastRunAt?: string;
   shouldClickRedirectLink?: boolean;
+}
+
+export interface TaskStatisticsDto {
+  total: number;
+  successCount: number;
+  redirects: Array<{
+    url: string;
+    count: number;
+  }>;
 }
 
 export interface CreateTaskDto {

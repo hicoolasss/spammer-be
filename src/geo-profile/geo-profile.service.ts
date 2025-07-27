@@ -1,9 +1,10 @@
 import { CountryCode } from '@enums';
 import { Buffers } from '@interfaces';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import csv from 'csv-parser';
-import { createReadStream, unlink } from 'fs';
+import { createReadStream } from 'fs';
+import { unlink } from 'fs/promises';
 import { FilterQuery, Model } from 'mongoose';
 import { RedisClientType } from 'redis';
 import { REDIS_CLIENT } from 'src/redis/redis.module';
@@ -14,6 +15,8 @@ import { GeoProfile, GeoProfileDocument } from './geo-profile.schema';
 
 @Injectable()
 export class GeoProfileService {
+  private readonly logger = new Logger(GeoProfileService.name);
+
   constructor(
     @InjectModel(GeoProfile.name) private profileModel: Model<GeoProfile>,
     @Inject(REDIS_CLIENT) private redisClient: RedisClientType,
@@ -72,9 +75,17 @@ export class GeoProfileService {
     profile.userAgentKey = uasKey;
     await profile.save();
 
-    [files.leadDataPath, files.userAgentsPath, files.fbClidsPath]
-      .filter((p) => !!p)
-      .forEach((p) => unlink(p, () => {}));
+    await Promise.all(
+      [files.leadDataPath, files.userAgentsPath, files.fbClidsPath]
+        .filter(Boolean)
+        .map(async (p) => {
+          try {
+            await unlink(p);
+          } catch (err) {
+            this.logger.error(`Ошибка удаления файла ${p}:`, err);
+          }
+        })
+    );
 
     return {
       _id: profileId,
@@ -250,7 +261,7 @@ export class GeoProfileService {
 
     await pipeline.exec();
 
-    unlink(filePath, () => {});
+    await unlink(filePath);
 
     return count;
   }
