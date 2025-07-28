@@ -1,6 +1,6 @@
 export const JOB_TASK_PROCESSOR = 'JOB: process random task';
 
-export const CRON_TASK_PROCESSOR = '* * * * *';
+export const CRON_TASK_PROCESSOR = '*/15 * * * *';
 export const FIVE_MIN = 1000 * 60 * 5;
 
 export enum JobPriority {

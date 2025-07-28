@@ -1,4 +1,4 @@
-import { FIVE_MIN, JobPriority } from '@consts';
+import { CRON_TASK_PROCESSOR, FIVE_MIN, JobPriority } from '@consts';
 import { TaskStatus } from '@enums';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -36,7 +36,7 @@ export class AgendaService implements OnModuleInit {
         }),
       );
 
-      await this.scheduleJob('* * * * *', 'processAllActiveTasks');
+      await this.scheduleJob(CRON_TASK_PROCESSOR, 'processAllActiveTasks');
       this.logger.info('Main job scheduled successfully');
     } catch (error) {
       this.logger.error('Failed to start agenda:', error);
