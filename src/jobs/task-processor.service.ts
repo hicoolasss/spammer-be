@@ -5,7 +5,9 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Task, TaskDocument } from '@task/task.schema';
 import { LogWrapper } from '@utils';
+import * as fs from 'fs';
 import { Model } from 'mongoose';
+import * as path from 'path';
 import { Browser, Page } from 'puppeteer';
 
 import { AIService } from '../ai/ai.service';
@@ -80,6 +82,31 @@ export class TaskProcessorService {
     }
   }
 
+  private async takeScreenshot(page: Page, taskId: string, stage: string): Promise<string> {
+    const taskPrefix = `[TASK_${taskId}]`;
+    try {
+      const screenshotsDir = 'screenshots';
+      if (!fs.existsSync(screenshotsDir)) {
+        fs.mkdirSync(screenshotsDir, { recursive: true });
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `task-${taskId}-${stage}-${timestamp}.png`;
+      const filepath = path.join(screenshotsDir, filename);
+
+      await page.screenshot({
+        path: filepath as `${string}.png`,
+        fullPage: true,
+      });
+
+      this.logger.info(`${taskPrefix} 📸 Screenshot saved: ${filepath}`);
+      return filepath;
+    } catch (error) {
+      this.logger.error(`${taskPrefix} Failed to take screenshot: ${error.message}`);
+      return '';
+    }
+  }
+
   private async processTask(task: TaskDocument): Promise<void> {
     const { _id, url, profileId, geo } = task;
     const taskId = _id.toString();
@@ -124,8 +151,10 @@ export class TaskProcessorService {
       this.logger.debug(
         `[TASK_${taskId}] Calling runPuppeteerTask with geo=${geo}, userAgent=${userAgent}, url=${finalUrl}`,
       );
-      await withTimeout(this.runPuppeteerTask(task, finalUrl, leadData, userAgent, false), TIMEOUT_MS, () =>
-        this.logger.error(`[TASK_${taskId}] Task timed out, closing slot`),
+      await withTimeout(
+        this.runPuppeteerTask(task, finalUrl, leadData, userAgent, false),
+        TIMEOUT_MS,
+        () => this.logger.error(`[TASK_${taskId}] Task timed out, closing slot`),
       );
 
       await this.taskModel.findByIdAndUpdate(_id, { lastRunAt: new Date() });
@@ -331,6 +360,9 @@ export class TaskProcessorService {
         this.simulateScrolling(finalPage, humanize, false, taskId, 'up'),
       );
       await this.safeExecute(finalPage, () => this.findAndOpenForm(finalPage, taskId));
+
+      await this.takeScreenshot(finalPage, taskId, 'before-form-fill');
+
       await this.safeExecute(finalPage, () =>
         this.fillFormWithData(finalPage, leadData, humanize, taskId),
       );
@@ -865,13 +897,15 @@ export class TaskProcessorService {
     try {
       if (humanize) {
         const prePause = 1000 + Math.random() * 3000;
-        this.logger.info(`${taskPrefix} (Humanize) Pause before filling form: ${prePause.toFixed(0)}ms`);
+        this.logger.info(
+          `${taskPrefix} (Humanize) Pause before filling form: ${prePause.toFixed(0)}ms`,
+        );
         await new Promise((resolve) => setTimeout(resolve, prePause));
         const randomClicks = 1 + Math.floor(Math.random() * 2);
         for (let i = 0; i < randomClicks; i++) {
           await page.evaluate(() => {
             const all = Array.from(document.querySelectorAll('div, p, span, section, article'));
-            const candidates = all.filter(el => {
+            const candidates = all.filter((el) => {
               const style = window.getComputedStyle(el);
               return (
                 (el as HTMLElement).offsetParent !== null &&
@@ -885,13 +919,18 @@ export class TaskProcessorService {
             if (candidates.length > 0) {
               const el = candidates[Math.floor(Math.random() * candidates.length)] as HTMLElement;
               const rect = el.getBoundingClientRect();
-              (window as any).__lastRandomClick = {x: rect.left + rect.width/2, y: rect.top + rect.height/2};
+              (window as any).__lastRandomClick = {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+              };
               el.click();
             }
           });
           if (page.mouse && page.evaluate) {
-            const pos = await page.evaluate(() => (window as any).__lastRandomClick || {x: 100, y: 100});
-            await page.mouse.move(pos.x, pos.y, {steps: 10});
+            const pos = await page.evaluate(
+              () => (window as any).__lastRandomClick || { x: 100, y: 100 },
+            );
+            await page.mouse.move(pos.x, pos.y, { steps: 10 });
           }
           await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 600));
         }
@@ -996,16 +1035,18 @@ export class TaskProcessorService {
               const el = document.querySelector(selector) as HTMLElement;
               if (!el) return null;
               const r = el.getBoundingClientRect();
-              return { x: r.left + r.width/2, y: r.top + r.height/2 };
+              return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
             }, field.selector);
             if (rect) {
-              await page.mouse.move(rect.x, rect.y, {steps: 15});
+              await page.mouse.move(rect.x, rect.y, { steps: 15 });
               await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
             }
           }
 
           if (humanize && Math.random() < 0.2) {
-            this.logger.info(`${taskPrefix} (Humanize) Not focusing immediately on field: ${field.selector}`);
+            this.logger.info(
+              `${taskPrefix} (Humanize) Not focusing immediately on field: ${field.selector}`,
+            );
             await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 800));
           }
 
@@ -1096,7 +1137,7 @@ export class TaskProcessorService {
             this.logger.info(`${taskPrefix} (Humanize) Clicking outside form after field`);
             await page.evaluate(() => {
               const all = Array.from(document.querySelectorAll('div, p, span, section, article'));
-              const candidates = all.filter(el => {
+              const candidates = all.filter((el) => {
                 const style = window.getComputedStyle(el);
                 return (
                   (el as HTMLElement).offsetParent !== null &&
@@ -1110,13 +1151,18 @@ export class TaskProcessorService {
               if (candidates.length > 0) {
                 const el = candidates[Math.floor(Math.random() * candidates.length)] as HTMLElement;
                 const rect = el.getBoundingClientRect();
-                (window as any).__lastRandomClick = {x: rect.left + rect.width/2, y: rect.top + rect.height/2};
+                (window as any).__lastRandomClick = {
+                  x: rect.left + rect.width / 2,
+                  y: rect.top + rect.height / 2,
+                };
                 el.click();
               }
             });
             if (page.mouse && page.evaluate) {
-              const pos = await page.evaluate(() => (window as any).__lastRandomClick || {x: 100, y: 100});
-              await page.mouse.move(pos.x, pos.y, {steps: 10});
+              const pos = await page.evaluate(
+                () => (window as any).__lastRandomClick || { x: 100, y: 100 },
+              );
+              await page.mouse.move(pos.x, pos.y, { steps: 10 });
             }
             await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 600));
           }
@@ -1175,7 +1221,9 @@ export class TaskProcessorService {
       }, analysis.bestForm.formIndex);
       this.logger.info(`${taskPrefix} 🎉 Form submit result: ${submitResult}`);
 
-      this.logger.info(`${taskPrefix} Waiting 50 seconds after form submission for processing and redirect...`);
+      this.logger.info(
+        `${taskPrefix} Waiting 50 seconds after form submission for processing and redirect...`,
+      );
       await new Promise((resolve) => setTimeout(resolve, 50000));
 
       try {
