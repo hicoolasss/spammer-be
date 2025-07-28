@@ -343,68 +343,70 @@ export class PuppeteerService implements OnModuleDestroy {
     });
     await page.setRequestInterception(true);
 
-    // page.on('request', async (req) => {
-    // const url = req.url();
-    // const urlLower = url.toLowerCase();
-    // const type = req.resourceType();
+    page.on('request', async (req) => {
+      // const url = req.url();
+      // const urlLower = url.toLowerCase();
+      // const type = req.resourceType();
 
-    // if (type === 'script' && BLACKLISTED_SCRIPTS.some((s) => urlLower.includes(s))) {
-    //   this.logger.debug(`[${creativeId}] Blocked by script rule → ${urlLower}`);
-    //   return req.abort();
-    // }
+      // if (type === 'script' && BLACKLISTED_SCRIPTS.some((s) => urlLower.includes(s))) {
+      //   this.logger.debug(`[${creativeId}] Blocked by script rule → ${urlLower}`);
+      //   return req.abort();
+      // }
 
-    // const strictPatterns = [
-    //   /kmnrkey/i,
-    //   /knmrkey/i,
-    //   /bean-script/i,
-    //   /afrdtech\.com/i,
-    //   /kaminari\.(space|systems|click)/i,
-    //   /\/v[0-9]+\/(check|append)/i,
-    // ];
+      // const strictPatterns = [
+      //   /kmnrkey/i,
+      //   /knmrkey/i,
+      //   /bean-script/i,
+      //   /afrdtech\.com/i,
+      //   /kaminari\.(space|systems|click)/i,
+      //   /\/v[0-9]+\/(check|append)/i,
+      // ];
 
-    // if (strictPatterns.some((pattern) => pattern.test(url))) {
-    //   this.logger.debug(`[${creativeId}] Blocked by strict pattern → ${url}`);
-    //   return req.abort();
-    // }
+      // if (strictPatterns.some((pattern) => pattern.test(url))) {
+      //   this.logger.debug(`[${creativeId}] Blocked by strict pattern → ${url}`);
+      //   return req.abort();
+      // }
 
-    // try {
-    //   const hostname = new URL(url).hostname.toLowerCase();
-    //   const isDomainBlocked = BLACKLISTED_DOMAINS.some(
-    //     (domain) => hostname === domain || hostname.endsWith('.' + domain),
-    //   );
+      // try {
+      //   const hostname = new URL(url).hostname.toLowerCase();
+      //   const isDomainBlocked = BLACKLISTED_DOMAINS.some(
+      //     (domain) => hostname === domain || hostname.endsWith('.' + domain),
+      //   );
 
-    //   if (isDomainBlocked) {
-    //     this.logger.debug(`[${creativeId}] Blocked by domain rule → ${url}`);
-    //     return req.abort();
-    //   }
-    // } catch {
-    //   // Ignore
-    // }
+      //   if (isDomainBlocked) {
+      //     this.logger.debug(`[${creativeId}] Blocked by domain rule → ${url}`);
+      //     return req.abort();
+      //   }
+      // } catch {
+      //   // Ignore
+      // }
 
-    // if (ALLOWLIST.some((r) => r.test(urlLower))) {
-    //   return req.continue();
-    // }
+      // if (ALLOWLIST.some((r) => r.test(urlLower))) {
+      //   this.logger.debug('IMPORTANT (allow)', url);
+      //   return req.continue();
+      // }
 
-    // if (BLOCKLIST.some((r) => r.test(urlLower))) {
-    //   this.logger.debug(`[${creativeId}] Blocked by uBlock rule → ${urlLower}`);
-    //   return req.abort();
-    // }
+      // if (BLOCKLIST.some((r) => r.test(urlLower))) {
+      //   this.logger.debug('IMPORTANT (block)', url);
+      //   this.logger.debug(`[${creativeId}] Blocked by uBlock rule → ${urlLower}`);
+      //   return req.abort();
+      // }
 
-    // if (BLACKLISTED_DOMAINS.some((domain) => urlLower.includes(domain))) {
-    //   this.logger.debug(`[${creativeId}] Blocked by domain rule → ${urlLower}`);
-    //   return req.abort();
-    // }
+      // if (BLACKLISTED_DOMAINS.some((domain) => urlLower.includes(domain))) {
+      //   this.logger.debug(`[${creativeId}] Blocked by domain rule → ${urlLower}`);
+      //   return req.abort();
+      // }
 
-    // if (
-    //   (type === 'xhr' || type === 'fetch') &&
-    //   BLACKLISTED_PARAMS.some((p) => url.includes(`?${p}`) || urlLower.includes(`&${p}`))
-    // ) {
-    //   this.logger.debug(`[${creativeId}] Blocked by param rule → ${urlLower}`);
-    //   return req.abort();
-    // }
+      // if (
+      //   (type === 'xhr' || type === 'fetch') &&
+      //   BLACKLISTED_PARAMS.some((p) => url.includes(`?${p}`) || urlLower.includes(`&${p}`))
+      // ) {
+      //   this.logger.debug(`[${creativeId}] Blocked by param rule → ${urlLower}`);
+      //   return req.abort();
+      // }
 
-    //   return req.continue();
-    // });
+      return req.continue();
+    });
     page.on('error', (err) => this.logger.error(`[DEBUG] Page error [${proxyGeo}]: ${err}`));
     page.on('pageerror', (err) => {
       if (err.message.includes('setCookie is not defined')) {

@@ -311,6 +311,8 @@ export class TaskProcessorService {
         return;
       }
 
+      await new Promise((resolve) => setTimeout(resolve, 60000));
+
       if (shouldClickRedirectLink) {
         this.logger.info(
           `[TASK_${taskId}] shouldClickRedirectLink=true: looking for redirect link after page load`,
