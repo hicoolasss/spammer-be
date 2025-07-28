@@ -90,7 +90,7 @@ export class TaskService {
       .limit(limit)
       .populate<{
         profileId: GeoProfileDto;
-      }>('profileId', 'name geo leadKey userAgentKey fbclidKey createdBy createdAt', 'GeoProfile')
+      }>('profileId', 'name geo leadKey userAgentKey fbclidKey leadCount userAgentCount fbclidCount createdBy createdAt', 'GeoProfile')
       .lean()
       .exec();
 
@@ -140,7 +140,7 @@ export class TaskService {
       .findById(taskId)
       .populate<{ profileId: GeoProfileDto }>({
         path: 'profileId',
-        select: 'name geo leadKey userAgentKey fbclidKey createdBy createdAt',
+        select: 'name geo leadKey userAgentKey fbclidKey leadCount userAgentCount fbclidCount createdBy createdAt',
       })
       .exec();
 
