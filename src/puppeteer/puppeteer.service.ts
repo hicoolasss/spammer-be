@@ -5,6 +5,7 @@ import {
   BLACKLISTED_DOMAINS,
   BLACKLISTED_PARAMS,
   BLACKLISTED_SCRIPTS,
+  IS_PROD_ENV,
   LogWrapper,
   UBLOCK_RAW_RULES,
 } from '@utils';
@@ -452,7 +453,7 @@ export class PuppeteerService implements OnModuleDestroy {
     let browser: Browser;
     try {
       browser = await launch({
-        headless: false,
+        headless: IS_PROD_ENV,
         dumpio: true,
         pipe: true,
         args: [
