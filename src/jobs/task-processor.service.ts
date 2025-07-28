@@ -120,7 +120,7 @@ export class TaskProcessorService {
       this.logger.debug(`[TASK_${taskId}] Geo: ${geo}`);
       this.logger.info(`[TASK_${taskId}] Processing lead: ${JSON.stringify(leadData)}`);
       this.logger.info(`[TASK_${taskId}] Using userAgent: ${userAgent}, fbclid: ${fbclid}`);
-      const TIMEOUT_MS = 2 * 60 * 1000;
+      const TIMEOUT_MS = 11 * 60 * 1000;
       this.logger.debug(
         `[TASK_${taskId}] Calling runPuppeteerTask with geo=${geo}, userAgent=${userAgent}, url=${finalUrl}`,
       );
@@ -1032,10 +1032,7 @@ export class TaskProcessorService {
                 field.selector,
                 value[i],
               );
-              const baseDelay = 100 + Math.random() * 200;
-              const thinkingPause = Math.random() < 0.1 ? 500 + Math.random() * 1000 : 0;
-              const fastPause = Math.random() < 0.05 ? Math.random() * 50 : 0;
-              const totalDelay = baseDelay + thinkingPause + fastPause;
+              const totalDelay = 300 + Math.random() * 900;
               await new Promise((resolve) => setTimeout(resolve, totalDelay));
               if (Math.random() < 0.05 && i < value.length - 1) {
                 const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26)); // random letter
