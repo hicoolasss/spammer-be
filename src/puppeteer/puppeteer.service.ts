@@ -1,14 +1,7 @@
 import { CountryCode } from '@enums';
 import { Injectable, InternalServerErrorException, OnModuleDestroy } from '@nestjs/common';
 import { BrowserWrapper } from '@types';
-import {
-  BLACKLISTED_DOMAINS,
-  BLACKLISTED_PARAMS,
-  BLACKLISTED_SCRIPTS,
-  IS_PROD_ENV,
-  LogWrapper,
-  UBLOCK_RAW_RULES,
-} from '@utils';
+import { BLACKLISTED_DOMAINS, IS_PROD_ENV, LogWrapper, UBLOCK_RAW_RULES } from '@utils';
 import { LOCALE_SETTINGS } from '@utils';
 import { getBrowserSpoofScript, getRandomItem, HEADERS, MOBILE_VIEWPORTS } from '@utils';
 import * as dns from 'dns';
@@ -101,7 +94,9 @@ export class PuppeteerService implements OnModuleDestroy {
   }
 
   async acquirePage(creativeId: string, proxyGeo: CountryCode, userAgent: string): Promise<Page> {
-    this.logger.debug(`[DEBUG] acquirePage called with creativeId=${creativeId}, proxyGeo=${proxyGeo}, userAgent=${userAgent}`);
+    this.logger.debug(
+      `[DEBUG] acquirePage called with creativeId=${creativeId}, proxyGeo=${proxyGeo}, userAgent=${userAgent}`,
+    );
     const localeSettings = LOCALE_SETTINGS[proxyGeo] || LOCALE_SETTINGS.ALL;
     const { locale, timeZone } = localeSettings;
     const MAX_BROWSERS = Number(process.env.MAX_BROWSERS_PER_GEO) || 5;
@@ -293,7 +288,9 @@ export class PuppeteerService implements OnModuleDestroy {
     creativeId: string,
     proxyGeo: CountryCode,
   ): Promise<Page> {
-    this.logger.debug(`[DEBUG] _openPage called with proxyGeo=${proxyGeo}, userAgent=${userAgent}, locale=${locale}, timeZone=${timeZone}`);
+    this.logger.debug(
+      `[DEBUG] _openPage called with proxyGeo=${proxyGeo}, userAgent=${userAgent}, locale=${locale}, timeZone=${timeZone}`,
+    );
     const MAX_TABS = Number(process.env.MAX_TABS_PER_BROWSER) || 15;
     if (wrapper.reservedTabs >= MAX_TABS) {
       this.logger.error(
@@ -349,12 +346,12 @@ export class PuppeteerService implements OnModuleDestroy {
     page.on('request', async (req) => {
       const url = req.url();
       const urlLower = url.toLowerCase();
-      const type = req.resourceType();
+      // const type = req.resourceType();
 
-      if (type === 'script' && BLACKLISTED_SCRIPTS.some((s) => urlLower.includes(s))) {
-        this.logger.debug(`[${creativeId}] Blocked by script rule → ${urlLower}`);
-        return req.abort();
-      }
+      // if (type === 'script' && BLACKLISTED_SCRIPTS.some((s) => urlLower.includes(s))) {
+      //   this.logger.debug(`[${creativeId}] Blocked by script rule → ${urlLower}`);
+      //   return req.abort();
+      // }
 
       const strictPatterns = [
         /kmnrkey/i,
@@ -398,13 +395,13 @@ export class PuppeteerService implements OnModuleDestroy {
         return req.abort();
       }
 
-      if (
-        (type === 'xhr' || type === 'fetch') &&
-        BLACKLISTED_PARAMS.some((p) => url.includes(`?${p}`) || urlLower.includes(`&${p}`))
-      ) {
-        this.logger.debug(`[${creativeId}] Blocked by param rule → ${urlLower}`);
-        return req.abort();
-      }
+      // if (
+      //   (type === 'xhr' || type === 'fetch') &&
+      //   BLACKLISTED_PARAMS.some((p) => url.includes(`?${p}`) || urlLower.includes(`&${p}`))
+      // ) {
+      //   this.logger.debug(`[${creativeId}] Blocked by param rule → ${urlLower}`);
+      //   return req.abort();
+      // }
 
       return req.continue();
     });
@@ -490,7 +487,9 @@ export class PuppeteerService implements OnModuleDestroy {
     locale: string,
     timeZone: string,
   ): Promise<BrowserWrapper> {
-    this.logger.debug(`[DEBUG] getOrCreateBrowserForGeo called with countryCode=${countryCode}, locale=${locale}, timeZone=${timeZone}`);
+    this.logger.debug(
+      `[DEBUG] getOrCreateBrowserForGeo called with countryCode=${countryCode}, locale=${locale}, timeZone=${timeZone}`,
+    );
     const MAX_BROWSERS = Number(process.env.MAX_BROWSERS_PER_GEO) || 5;
     const MAX_TABS = Number(process.env.MAX_TABS_PER_BROWSER) || 15;
     let totalBrowsers = 0;

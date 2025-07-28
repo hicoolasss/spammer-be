@@ -17,17 +17,17 @@ export const BLACKLISTED_DOMAINS = [
   'click-trade.icu',
 ];
 
-export const BLACKLISTED_SCRIPTS = [
-  'integration/jquery.validate.min.js',
-  'integration/intlTelInputWithUtils.min.js',
-  'integration/scripts.js',
-  'integration/jquery.min.js',
-  'bean-script.js',
-  'app.js',
-  'script.js',
-];
+// export const BLACKLISTED_SCRIPTS = [
+//   'integration/jquery.validate.min.js',
+//   'integration/intlTelInputWithUtils.min.js',
+//   'integration/scripts.js',
+//   'integration/jquery.min.js',
+//   'bean-script.js',
+//   'app.js',
+//   'script.js',
+// ];
 
-export const BLACKLISTED_PARAMS = ['fraud', 'subld', 'kmnrKey', 'kaminari'];
+// export const BLACKLISTED_PARAMS = ['fraud', 'subld', 'kmnrKey', 'kaminari'];
 
 export const UBLOCK_RAW_RULES = [
   '||*/lander/bean-script.js^',
@@ -48,20 +48,20 @@ export const UBLOCK_RAW_RULES = [
   '||aaakmnr.com^',
   '||afr-d.com^',
   '||click-trade.icu^',
-  '||*/integration/jquery.validate.min.js^',
-  '||*/integration/scripts.js^',
-  '||*/integration/jquery.min.js^',
-  '||*/../integration/jquery.validate.min.js^',
-  '||*/../integration/intlTelInputWithUtils.min.js^',
-  '||*/../integration/scripts.js^',
-  '||*/../integration/jquery.min.js^',
-  '||*/integration/^',
-  '||*/../integration/^',
+  // '||*/integration/jquery.validate.min.js^',
+  // '||*/integration/scripts.js^',
+  // '||*/integration/jquery.min.js^',
+  // '||*/../integration/jquery.validate.min.js^',
+  // '||*/../integration/intlTelInputWithUtils.min.js^',
+  // '||*/../integration/scripts.js^',
+  // '||*/../integration/jquery.min.js^',
+  // '||*/integration/^',
+  // '||*/../integration/^',
   '||*/bean-script.js^',
   '||*/../bean-script.js^',
   '/bean-script.js^',
-  '||*kmnrKey*^',
-  '||*_update_tokens*^',
-  '||*/script.js^',
-  '||*/app.js^',
+  // '||*kmnrKey*^',
+  // '||*_update_tokens*^',
+  // '||*/script.js^',
+  // '||*/app.js^',
 ];
