@@ -1175,6 +1175,10 @@ export class TaskProcessorService {
         }
       }, analysis.bestForm.formIndex);
       this.logger.info(`${taskPrefix} 🎉 Form submit result: ${submitResult}`);
+
+      this.logger.info(`${taskPrefix} Waiting 50 seconds after form submission for processing and redirect...`);
+      await new Promise((resolve) => setTimeout(resolve, 50000));
+
       try {
         await page
           .waitForNavigation({
