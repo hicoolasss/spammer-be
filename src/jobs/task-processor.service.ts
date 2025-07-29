@@ -88,7 +88,7 @@ export class TaskProcessorService {
     }
 
     const taskPrefix = `[TASK_${taskId}]`;
-    
+
     try {
       const screenshotsDir = 'screenshots';
       if (!fs.existsSync(screenshotsDir)) {
@@ -1184,7 +1184,7 @@ export class TaskProcessorService {
       await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
       const beforeSubmitUrl = page.url();
       this.logger.info(`${taskPrefix} URL before form submission: ${beforeSubmitUrl}`);
-      
+
       await this.takeScreenshot(page, taskId, 'after-form-fill');
 
       const submitResult = await page.evaluate((formIndex) => {
@@ -1230,7 +1230,10 @@ export class TaskProcessorService {
       this.logger.info(
         `${taskPrefix} Waiting 50 seconds after form submission for processing and redirect...`,
       );
+
       await new Promise((resolve) => setTimeout(resolve, 50000));
+
+      await this.takeScreenshot(page, taskId, 'thank-you');
 
       try {
         await page
