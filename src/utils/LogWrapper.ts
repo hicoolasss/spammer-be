@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 
+import { IS_PROD_ENV } from './env.enums';
 import logtail from './logtail';
 
 type LogType = 'error' | 'warn' | 'log' | 'debug' | 'verbose';
@@ -20,7 +21,7 @@ export class LogWrapper {
       this.logger.log(message, ...meta);
     }
 
-    if (this.useLogtail && logtail[type]) {
+    if (IS_PROD_ENV && this.useLogtail && logtail[type]) {
       try {
         logtail[type](message, ...meta);
         await logtail.flush();
