@@ -4,7 +4,7 @@ import { LeadData } from '@interfaces';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Task, TaskDocument } from '@task/task.schema';
-import { LogWrapper } from '@utils';
+import { IS_DEBUG_MODE, LogWrapper } from '@utils';
 import * as fs from 'fs';
 import { Model } from 'mongoose';
 import * as path from 'path';
@@ -82,8 +82,13 @@ export class TaskProcessorService {
     }
   }
 
-  private async takeScreenshot(page: Page, taskId: string, stage: string): Promise<string> {
+  private async takeScreenshot(page: Page, taskId: string, stage: string): Promise<void> {
+    if (!IS_DEBUG_MODE) {
+      return;
+    }
+
     const taskPrefix = `[TASK_${taskId}]`;
+    
     try {
       const screenshotsDir = 'screenshots';
       if (!fs.existsSync(screenshotsDir)) {
@@ -100,10 +105,8 @@ export class TaskProcessorService {
       });
 
       this.logger.info(`${taskPrefix} 📸 Screenshot saved: ${filepath}`);
-      return filepath;
     } catch (error) {
       this.logger.error(`${taskPrefix} Failed to take screenshot: ${error.message}`);
-      return '';
     }
   }
 
@@ -1181,6 +1184,9 @@ export class TaskProcessorService {
       await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
       const beforeSubmitUrl = page.url();
       this.logger.info(`${taskPrefix} URL before form submission: ${beforeSubmitUrl}`);
+      
+      await this.takeScreenshot(page, taskId, 'after-form-fill');
+
       const submitResult = await page.evaluate((formIndex) => {
         const forms = Array.from(document.querySelectorAll('form'));
         const form = forms[formIndex];
