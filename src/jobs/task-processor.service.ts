@@ -686,8 +686,8 @@ export class TaskProcessorService {
     }
   }
 
-  private async simulateRandomClicks(page: Page, humanize = false, taskId?: string): Promise<void> {
-    const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
+  private async simulateRandomClicks(page: Page, humanize = false, taskId: string): Promise<void> {
+    const taskPrefix = `[TASK_${taskId}]`;
     this.logger.info(`${taskPrefix} Simulating natural clicks and navigation...`);
 
     if (page.isClosed()) {
