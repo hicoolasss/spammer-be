@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@logtail/node':
+        specifier: ^0.5.5
+        version: 0.5.5
       '@nestjs/cli':
         specifier: ^10.0.0
         version: 10.4.9
@@ -613,12 +616,28 @@ packages:
     resolution: {integrity: sha512-ajBvlKpWucBB17FuQYUShqpqy8GRgYEpJW0vWJbUu1CV9lWyrDCapy0lScU8T8Z6qn49sSwJB3+M+evYIdGg+A==}
     engines: {node: '>= 0.4'}
 
+  '@logtail/core@0.5.4':
+    resolution: {integrity: sha512-UlbxvUg5MDroqk6gEhtfKuuBShrvD/VaXl3T3jGU1U6I19Y1OwfB7e681LvH7RbsCAnOJFziM/7rMQib/CJTdg==}
+
+  '@logtail/node@0.5.5':
+    resolution: {integrity: sha512-hSZDjl2wFRxe/+pxSlYNSpm0V3a2ZsiWqBifvtCBHTriwrNkd0LjQtedRlrjoBBumVxIMGdDOCPayAIbcux5YQ==}
+
+  '@logtail/tools@0.5.4':
+    resolution: {integrity: sha512-S0PtfWOVVgvb36q8mLksMw910mO2TahDaqIYnUM/ZEYX+AwqKRGov4zt/X33zHRzCFVpSKoZFv7bFs8TBie/pQ==}
+
+  '@logtail/types@0.5.3':
+    resolution: {integrity: sha512-5uKf1xQ7wRqSW0lYIwDpXdXcFHxPKH5EM22MoEjwTpd8suymOYuEdx9qCCHCYey4uOhPq7x6OkZf86bTO83JsA==}
+
   '@lukeed/csprng@1.1.0':
     resolution: {integrity: sha512-Z7C/xXCiGWsg0KuKsHTKJxbWhpI3Vs5GwLfOean7MGyVFGqdRgBbAjOCh6u4bbjPc/8MJ2pZmK/0DLdCbivLDA==}
     engines: {node: '>=8'}
 
   '@mongodb-js/saslprep@1.2.2':
     resolution: {integrity: sha512-EB0O3SCSNRUFk66iRCpI+cXzIjdswfCs7F6nOC3RAGJ7xr5YhaicvsRwJ9eyzYvYRlCSDUO/c7g4yNulxKC1WA==}
+
+  '@msgpack/msgpack@2.8.0':
+    resolution: {integrity: sha512-h9u4u/jiIRKbq25PM+zymTyW6bhTzELvOoUd+AvYriWOAKpLGnIamaET3pnHYoI5iYphAHBI4ayx0MehR+VVPQ==}
+    engines: {node: '>= 10'}
 
   '@napi-rs/wasm-runtime@0.2.11':
     resolution: {integrity: sha512-9DPkXtvHydrcOsopiYpUgPHpmj0HWZKMUnL2dZqpvC42lsratuBG06V5ipyno0fUek5VlFsNQ+AcFATSrJXgMA==}
@@ -1327,6 +1346,9 @@ packages:
 
   '@types/serve-static@1.15.7':
     resolution: {integrity: sha512-W8Ym+h8nhuRwaKPaDw34QUkwsGi6Rc4yYqvKFo5rm2FUEhCFbzVWrxXUxuKK8TASjWsysJY0nsmNCGhCOIsrOw==}
+
+  '@types/stack-trace@0.0.33':
+    resolution: {integrity: sha512-O7in6531Bbvlb2KEsJ0dq0CHZvc3iWSR5ZYMtvGgnHA56VgriAN/AU2LorfmcvAl2xc9N5fbCTRyMRRl8nd74g==}
 
   '@types/stack-utils@2.0.3':
     resolution: {integrity: sha512-9aEbYZ3TbYMznPdcdr3SmIrLXwC/AKZXQeCf9Pgao5CKb8CyHuEX5jzWPTkvregvhRJHcpRO6BFoGW9ycaOkYw==}
@@ -3710,6 +3732,10 @@ packages:
     resolution: {integrity: sha512-uaW0WwXKpL9blXE2o0bRhoL2EGXIrZxQ2ZQ4mgcfoBxdFmQold+qWsD2jLrfZ0trjKL6vOw0j//eAwcALFjKSw==}
     engines: {node: '>= 18'}
 
+  serialize-error@8.1.0:
+    resolution: {integrity: sha512-3NnuWfM6vBYoy5gZFvHiYsVbafvI9vZv/+jlIigFn4oP4zjNPK3LhcY0xSCgeb1a5L8jO71Mit9LlNoi2UfDDQ==}
+    engines: {node: '>=10'}
+
   serialize-javascript@6.0.2:
     resolution: {integrity: sha512-Saa1xPByTTq2gdeFZYLLo+RFE35NHZkAbqZeWNd3BpzppeVisAqpDjcp8dyf6uIvEqJRd46jemmyA4iFIeVk8g==}
 
@@ -3818,6 +3844,9 @@ packages:
 
   sprintf-js@1.1.3:
     resolution: {integrity: sha512-Oo+0REFV59/rz3gfJNKQiBlwfHaSESl1pcGyABQsnnIfWOFt6JNj5gCog2U6MLZ//IGYD+nA8nI+mTShREReaA==}
+
+  stack-trace@0.0.10:
+    resolution: {integrity: sha512-KGzahc7puUKkzyMt+IqAep+TVNbKP+k2Lmwhub39m1AsTSkaDutx56aDCo+HLDzf/D26BIHTJWNiTG1KAJiQCg==}
 
   stack-utils@2.0.6:
     resolution: {integrity: sha512-XlkWvfIm6RmsWtNJx+uqtKLS8eqFbxUg0ZzLXqY0caEy9l7hruX8IpiDnjsLavoBgqCCR71TqWO8MaXYheJ3RQ==}
@@ -5208,11 +5237,34 @@ snapshots:
     dependencies:
       call-bind: 1.0.8
 
+  '@logtail/core@0.5.4':
+    dependencies:
+      '@logtail/tools': 0.5.4
+      '@logtail/types': 0.5.3
+      serialize-error: 8.1.0
+
+  '@logtail/node@0.5.5':
+    dependencies:
+      '@logtail/core': 0.5.4
+      '@logtail/types': 0.5.3
+      '@msgpack/msgpack': 2.8.0
+      '@types/stack-trace': 0.0.33
+      minimatch: 9.0.5
+      stack-trace: 0.0.10
+
+  '@logtail/tools@0.5.4':
+    dependencies:
+      '@logtail/types': 0.5.3
+
+  '@logtail/types@0.5.3': {}
+
   '@lukeed/csprng@1.1.0': {}
 
   '@mongodb-js/saslprep@1.2.2':
     dependencies:
       sparse-bitfield: 3.0.3
+
+  '@msgpack/msgpack@2.8.0': {}
 
   '@napi-rs/wasm-runtime@0.2.11':
     dependencies:
@@ -6081,6 +6133,8 @@ snapshots:
       '@types/http-errors': 2.0.4
       '@types/node': 20.17.52
       '@types/send': 0.17.4
+
+  '@types/stack-trace@0.0.33': {}
 
   '@types/stack-utils@2.0.3': {}
 
@@ -8897,6 +8951,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  serialize-error@8.1.0:
+    dependencies:
+      type-fest: 0.20.2
+
   serialize-javascript@6.0.2:
     dependencies:
       randombytes: 2.1.0
@@ -9045,6 +9103,8 @@ snapshots:
   sprintf-js@1.0.3: {}
 
   sprintf-js@1.1.3: {}
+
+  stack-trace@0.0.10: {}
 
   stack-utils@2.0.6:
     dependencies:

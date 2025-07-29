@@ -4,6 +4,7 @@ export { getBrowserSpoofScript } from './getBrowserSpoofScript';
 export * from './headers';
 export * from './JobWrapper';
 export * from './localeSettings';
+export * from './logtail';
 export * from './LogWrapper';
 export * from './mobileViewports';
 export * from './random';
