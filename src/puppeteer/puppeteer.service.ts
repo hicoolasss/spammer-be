@@ -7,27 +7,6 @@ import { getBrowserSpoofScript, getRandomItem, HEADERS, MOBILE_VIEWPORTS } from 
 import * as dns from 'dns';
 import { Browser, launch, Page } from 'puppeteer';
 
-// const ALLOWLIST: RegExp[] = [];
-// const BLOCKLIST: RegExp[] = [];
-
-// UBLOCK_RAW_RULES.forEach((rule) => {
-//   if (rule.startsWith('@@')) {
-//     ALLOWLIST.push(convertRuleToRegExp(rule.slice(2)));
-//   } else {
-//     BLOCKLIST.push(convertRuleToRegExp(rule));
-//   }
-// });
-
-// function convertRuleToRegExp(rule: string): RegExp {
-//   const escaped = rule
-//     .replace(/\*/g, '.*')
-//     .replace(/\^/g, '(?:[^a-zA-Z0-9_.%-]|$)')
-//     .replace(/\//g, '\\/')
-//     .replace(/\?/g, '\\?');
-//   const full = escaped.startsWith('||') ? '^https?:\\/\\/' + escaped.slice(2) : escaped;
-//   return new RegExp(full, 'i');
-// }
-
 @Injectable()
 export class PuppeteerService implements OnModuleDestroy {
   private readonly logger = new LogWrapper(PuppeteerService.name);
@@ -344,67 +323,6 @@ export class PuppeteerService implements OnModuleDestroy {
     await page.setRequestInterception(true);
 
     page.on('request', async (req) => {
-      // const url = req.url();
-      // const urlLower = url.toLowerCase();
-      // const type = req.resourceType();
-
-      // if (type === 'script' && BLACKLISTED_SCRIPTS.some((s) => urlLower.includes(s))) {
-      //   this.logger.debug(`[${creativeId}] Blocked by script rule → ${urlLower}`);
-      //   return req.abort();
-      // }
-
-      // const strictPatterns = [
-      //   /kmnrkey/i,
-      //   /knmrkey/i,
-      //   /bean-script/i,
-      //   /afrdtech\.com/i,
-      //   /kaminari\.(space|systems|click)/i,
-      //   /\/v[0-9]+\/(check|append)/i,
-      // ];
-
-      // if (strictPatterns.some((pattern) => pattern.test(url))) {
-      //   this.logger.debug(`[${creativeId}] Blocked by strict pattern → ${url}`);
-      //   return req.abort();
-      // }
-
-      // try {
-      //   const hostname = new URL(url).hostname.toLowerCase();
-      //   const isDomainBlocked = BLACKLISTED_DOMAINS.some(
-      //     (domain) => hostname === domain || hostname.endsWith('.' + domain),
-      //   );
-
-      //   if (isDomainBlocked) {
-      //     this.logger.debug(`[${creativeId}] Blocked by domain rule → ${url}`);
-      //     return req.abort();
-      //   }
-      // } catch {
-      //   // Ignore
-      // }
-
-      // if (ALLOWLIST.some((r) => r.test(urlLower))) {
-      //   this.logger.debug('IMPORTANT (allow)', url);
-      //   return req.continue();
-      // }
-
-      // if (BLOCKLIST.some((r) => r.test(urlLower))) {
-      //   this.logger.debug('IMPORTANT (block)', url);
-      //   this.logger.debug(`[${creativeId}] Blocked by uBlock rule → ${urlLower}`);
-      //   return req.abort();
-      // }
-
-      // if (BLACKLISTED_DOMAINS.some((domain) => urlLower.includes(domain))) {
-      //   this.logger.debug(`[${creativeId}] Blocked by domain rule → ${urlLower}`);
-      //   return req.abort();
-      // }
-
-      // if (
-      //   (type === 'xhr' || type === 'fetch') &&
-      //   BLACKLISTED_PARAMS.some((p) => url.includes(`?${p}`) || urlLower.includes(`&${p}`))
-      // ) {
-      //   this.logger.debug(`[${creativeId}] Blocked by param rule → ${urlLower}`);
-      //   return req.abort();
-      // }
-
       return req.continue();
     });
     page.on('error', (err) => this.logger.error(`[DEBUG] Page error [${proxyGeo}]: ${err}`));
@@ -471,12 +389,6 @@ export class PuppeteerService implements OnModuleDestroy {
       });
     } catch (e) {
       throw new InternalServerErrorException(`Failed to launch browser: ${e.message}`);
-    }
-    try {
-      const pages = await browser.pages();
-      await Promise.all(pages.map((p) => p.close()));
-    } catch {
-      // Ignore
     }
     browser.on('disconnected', () => {
       this.browserPool.delete(locale as unknown as CountryCode);
