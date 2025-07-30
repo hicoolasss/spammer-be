@@ -11,6 +11,7 @@ import * as path from 'path';
 import { Browser, Page } from 'puppeteer';
 
 import { AIService } from '../ai/ai.service';
+import { FormField } from '../interfaces/lead.interfaces';
 import { PuppeteerService } from '../puppeteer/puppeteer.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -78,7 +79,9 @@ export class TaskProcessorService {
           task.isRunning = false;
           await task.save();
         } catch (saveError) {
-          this.logger.error(`[TASK_${taskId}] Failed to reset isRunning flag: ${saveError.message}`);
+          this.logger.error(
+            `[TASK_${taskId}] Failed to reset isRunning flag: ${saveError.message}`,
+          );
           await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
         }
       }
@@ -87,7 +90,9 @@ export class TaskProcessorService {
       try {
         await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
       } catch (resetError) {
-        this.logger.error(`[TASK_${taskId}] Failed to reset isRunning after error: ${resetError.message}`);
+        this.logger.error(
+          `[TASK_${taskId}] Failed to reset isRunning after error: ${resetError.message}`,
+        );
       }
     }
   }
@@ -140,13 +145,6 @@ export class TaskProcessorService {
       const leadData = await this.redisService.getLeadData(leadKey);
       const userAgent = await this.redisService.getUserAgentData(userAgentKey);
       const fbclid = await this.redisService.getFbclidData(fbclidKey);
-
-      // TEST
-      // leadData = {
-      //   ...leadData,
-      //   email: leadData.phone,
-      //   phone: leadData.email,
-      // };
 
       let finalUrl = url;
 
@@ -892,6 +890,252 @@ export class TaskProcessorService {
     }
   }
 
+  private async fillFieldByType(
+    page: Page,
+    field: FormField,
+    value: string,
+    humanize: boolean,
+    taskId?: string,
+  ): Promise<void> {
+    const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
+
+    const typingConfig = this.getTypingConfig(field.type, humanize);
+
+    this.logger.debug(
+      `${taskPrefix} ${typingConfig.icon} Filling ${field.type} field: ${field.selector}`,
+    );
+
+    await this.fillFieldWithTyping(page, field.selector, value, typingConfig, taskId);
+  }
+
+  private getTypingConfig(fieldType: string, humanize: boolean) {
+    const baseConfig = {
+      icon: '📝',
+      baseDelay: 100,
+      typingSpeed: 50,
+      typoChance: 0.05,
+      pauseChance: 0.1,
+      pauseDuration: { min: 500, max: 1000 },
+    };
+
+    if (!humanize) {
+      return {
+        ...baseConfig,
+        baseDelay: 30,
+        typingSpeed: 20,
+        typoChance: 0,
+        pauseChance: 0,
+      };
+    }
+
+    switch (fieldType) {
+      case 'email':
+        return {
+          ...baseConfig,
+          icon: '📧',
+          baseDelay: 80,
+          typingSpeed: 40,
+        };
+
+      case 'phone':
+        return {
+          ...baseConfig,
+          icon: '📞',
+          baseDelay: 120,
+          typingSpeed: 60,
+        };
+
+      case 'name':
+        return {
+          ...baseConfig,
+          icon: '👤',
+          baseDelay: 150,
+          typingSpeed: 100,
+          pauseChance: 0.15,
+          pauseDuration: { min: 800, max: 1500 },
+        };
+
+      case 'surname':
+        return {
+          ...baseConfig,
+          icon: '👤',
+          baseDelay: 150,
+          typingSpeed: 100,
+          pauseChance: 0.15,
+          pauseDuration: { min: 800, max: 1500 },
+        };
+
+      default:
+        return {
+          ...baseConfig,
+          icon: '❓',
+          baseDelay: 100,
+          typingSpeed: 50,
+        };
+    }
+  }
+
+  private async fillFieldWithTyping(
+    page: Page,
+    selector: string,
+    value: string,
+    config: {
+      icon: string;
+      baseDelay: number;
+      typingSpeed: number;
+      typoChance: number;
+      pauseChance: number;
+      pauseDuration: { min: number; max: number };
+    },
+    taskId?: string,
+  ): Promise<void> {
+    const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
+
+    await this.prepareField(page, selector);
+
+    for (let i = 0; i < value.length; i++) {
+      const char = value[i];
+
+      await this.addCharacter(page, selector, char);
+
+      const totalDelay = config.baseDelay + Math.random() * config.typingSpeed;
+      await new Promise((resolve) => setTimeout(resolve, totalDelay));
+
+      if (Math.random() < config.typoChance && i < value.length - 1) {
+        await this.simulateTypo(page, selector, taskPrefix);
+      }
+
+      if (Math.random() < config.pauseChance && i < value.length - 1) {
+        const pauseDelay =
+          config.pauseDuration.min +
+          Math.random() * (config.pauseDuration.max - config.pauseDuration.min);
+        this.logger.debug(`${taskPrefix} ⏸️ Typing pause: ${pauseDelay.toFixed(0)}ms`);
+        await new Promise((resolve) => setTimeout(resolve, pauseDelay));
+      }
+    }
+  }
+
+  private async prepareField(page: Page, selector: string): Promise<void> {
+    await page.evaluate((selector) => {
+      const element = document.querySelector(selector) as HTMLInputElement;
+      if (element) {
+        element.focus();
+        element.click();
+        element.value = '';
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }, selector);
+
+    await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
+  }
+
+  private async addCharacter(page: Page, selector: string, char: string): Promise<void> {
+    await page.evaluate(
+      (selector, char) => {
+        const element = document.querySelector(selector) as HTMLInputElement;
+        if (element) {
+          element.value += char;
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      },
+      selector,
+      char,
+    );
+  }
+
+  private async simulateTypo(page: Page, selector: string, taskPrefix: string): Promise<void> {
+    const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26)); // случайная буква
+    this.logger.debug(`${taskPrefix} ⌨️ Made typo: "${typoChar}", correcting...`);
+
+    await this.addCharacter(page, selector, typoChar);
+
+    await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
+
+    await page.evaluate((selector) => {
+      const element = document.querySelector(selector) as HTMLInputElement;
+      if (element) {
+        element.value = element.value.slice(0, -1);
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }, selector);
+
+    await new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 200));
+  }
+
+  private async simulateMouseMovement(
+    page: Page,
+    selector: string,
+    taskId?: string,
+  ): Promise<void> {
+    const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
+
+    if (!page.mouse) return;
+
+    try {
+      const rect = await page.evaluate((selector) => {
+        const el = document.querySelector(selector) as HTMLElement;
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }, selector);
+
+      if (rect) {
+        const steps = 10 + Math.floor(Math.random() * 10); // 10-20 шагов
+        await page.mouse.move(rect.x, rect.y, { steps });
+
+        await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 300));
+
+        this.logger.debug(`${taskPrefix} 🖱️ Mouse moved to field: ${selector}`);
+      }
+    } catch (error) {
+      this.logger.debug(`${taskPrefix} Failed to move mouse to field: ${error.message}`);
+    }
+  }
+
+  private async simulateFieldTransition(page: Page, taskId?: string): Promise<void> {
+    const taskPrefix = `[TASK_${taskId}]`;
+    const basePause = 800 + Math.random() * 1200;
+    const readingPause = Math.random() < 0.2 ? 500 + Math.random() * 1000 : 0;
+    const quickPause = Math.random() < 0.1 ? Math.random() * 300 : 0;
+    const totalPause = basePause + readingPause + quickPause;
+
+    if (Math.random() < 0.1) {
+      this.logger.debug(`${taskPrefix} 🎯 Random click outside form`);
+      await page.evaluate(() => {
+        const all = Array.from(document.querySelectorAll('div, p, span, section, article'));
+        const candidates = all.filter((el) => {
+          const style = window.getComputedStyle(el);
+          return (
+            (el as HTMLElement).offsetParent !== null &&
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            style.opacity !== '0' &&
+            el.clientHeight > 10 &&
+            el.clientWidth > 10
+          );
+        });
+        if (candidates.length > 0) {
+          const el = candidates[Math.floor(Math.random() * candidates.length)] as HTMLElement;
+          el.click();
+        }
+      });
+
+      if (page.mouse && page.evaluate) {
+        const pos = await page.evaluate(
+          () => (window as any).__lastRandomClick || { x: 100, y: 100 },
+        );
+        await page.mouse.move(pos.x, pos.y, { steps: 10 });
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 600));
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, totalPause));
+  }
+
   private async fillFormWithData(
     page: Page,
     leadData: LeadData,
@@ -1043,147 +1287,27 @@ export class TaskProcessorService {
           }
           await new Promise((resolve) => setTimeout(resolve, 500 + Math.random() * 500));
 
-          if (humanize && page.mouse) {
-            const rect = await page.evaluate((selector) => {
-              const el = document.querySelector(selector) as HTMLElement;
-              if (!el) return null;
-              const r = el.getBoundingClientRect();
-              return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-            }, field.selector);
-            if (rect) {
-              await page.mouse.move(rect.x, rect.y, { steps: 15 });
-              await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
-            }
-          }
-
-          if (humanize && Math.random() < 0.2) {
-            this.logger.info(
-              `${taskPrefix} (Humanize) Not focusing immediately on field: ${field.selector}`,
-            );
-            await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 800));
-          }
-
+          // Имитация движения мыши к полю (только в режиме humanize)
           if (humanize) {
-            this.logger.info(
-              `${taskPrefix} 🎯 Starting humanized typing for field: ${field.selector}`,
-            );
-            await page.evaluate((selector) => {
-              const element = document.querySelector(selector) as HTMLInputElement;
-              if (element) {
-                element.focus();
-                element.click();
-              }
-            }, field.selector);
-            await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
-            for (let i = 0; i < value.length; i++) {
-              await page.evaluate(
-                (selector, char) => {
-                  const element = document.querySelector(selector) as HTMLInputElement;
-                  if (element) {
-                    element.value += char;
-                    element.dispatchEvent(new Event('input', { bubbles: true }));
-                    element.dispatchEvent(new Event('change', { bubbles: true }));
-                  }
-                },
-                field.selector,
-                value[i],
+            await this.simulateMouseMovement(page, field.selector, taskId);
+
+            // Случайная задержка перед фокусом (20% вероятность)
+            if (Math.random() < 0.2) {
+              this.logger.debug(
+                `${taskPrefix} (Humanize) Delaying focus on field: ${field.selector}`,
               );
-              const totalDelay = 300 + Math.random() * 900;
-              await new Promise((resolve) => setTimeout(resolve, totalDelay));
-              if (Math.random() < 0.05 && i < value.length - 1) {
-                const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26)); // random letter
-                this.logger.debug(`${taskPrefix} ⌨️ Made typo: "${typoChar}", correcting...`);
-                await page.evaluate(
-                  (selector, typoChar) => {
-                    const element = document.querySelector(selector) as HTMLInputElement;
-                    if (element) {
-                      element.value += typoChar;
-                      element.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
-                  },
-                  field.selector,
-                  typoChar,
-                );
-                await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
-                await page.evaluate((selector) => {
-                  const element = document.querySelector(selector) as HTMLInputElement;
-                  if (element) {
-                    element.value = element.value.slice(0, -1);
-                    element.dispatchEvent(new Event('input', { bubbles: true }));
-                    element.dispatchEvent(new Event('change', { bubbles: true }));
-                  }
-                }, field.selector);
-                await new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 200));
-              }
-            }
-          } else {
-            await page.evaluate((selector) => {
-              const element = document.querySelector(selector) as HTMLInputElement;
-              if (element) {
-                element.focus();
-                element.click();
-              }
-            }, field.selector);
-            await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 200));
-            const chunkSize = Math.max(1, Math.floor(value.length / 3));
-            for (let i = 0; i < value.length; i += chunkSize) {
-              const chunk = value.slice(i, i + chunkSize);
-              await page.evaluate(
-                (selector, chunk) => {
-                  const element = document.querySelector(selector) as HTMLInputElement;
-                  if (element) {
-                    element.value += chunk;
-                    element.dispatchEvent(new Event('input', { bubbles: true }));
-                    element.dispatchEvent(new Event('change', { bubbles: true }));
-                  }
-                },
-                field.selector,
-                chunk,
-              );
-              await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
+              await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 800));
             }
           }
+
+          // Заполнение поля с учетом его типа
+          await this.fillFieldByType(page, field, value, humanize, taskId);
           this.logger.info(
             `${taskPrefix} ✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
           );
-          if (humanize && Math.random() < 0.1) {
-            this.logger.info(`${taskPrefix} (Humanize) Clicking outside form after field`);
-            await page.evaluate(() => {
-              const all = Array.from(document.querySelectorAll('div, p, span, section, article'));
-              const candidates = all.filter((el) => {
-                const style = window.getComputedStyle(el);
-                return (
-                  (el as HTMLElement).offsetParent !== null &&
-                  style.display !== 'none' &&
-                  style.visibility !== 'hidden' &&
-                  style.opacity !== '0' &&
-                  el.clientHeight > 10 &&
-                  el.clientWidth > 10
-                );
-              });
-              if (candidates.length > 0) {
-                const el = candidates[Math.floor(Math.random() * candidates.length)] as HTMLElement;
-                const rect = el.getBoundingClientRect();
-                (window as any).__lastRandomClick = {
-                  x: rect.left + rect.width / 2,
-                  y: rect.top + rect.height / 2,
-                };
-                el.click();
-              }
-            });
-            if (page.mouse && page.evaluate) {
-              const pos = await page.evaluate(
-                () => (window as any).__lastRandomClick || { x: 100, y: 100 },
-              );
-              await page.mouse.move(pos.x, pos.y, { steps: 10 });
-            }
-            await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 600));
-          }
-          const basePause = 800 + Math.random() * 1200;
-          const readingPause = Math.random() < 0.2 ? 500 + Math.random() * 1000 : 0;
-          const quickPause = Math.random() < 0.1 ? Math.random() * 300 : 0;
-          const totalPause = basePause + readingPause + quickPause;
-          await new Promise((resolve) => setTimeout(resolve, totalPause));
+
+          // Имитация переходов между полями
+          await this.simulateFieldTransition(page, taskId);
         } catch (error) {
           this.logger.warn(
             `${taskPrefix} Failed to fill field ${field.selector}: ${error.message}`,
