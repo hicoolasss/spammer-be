@@ -351,15 +351,14 @@ export class TaskProcessorService {
         return;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 60000));
-
       if (shouldClickRedirectLink) {
         this.logger.info(
           `[TASK_${taskId}] shouldClickRedirectLink=true: looking for redirect link after page load`,
         );
-        await this.tryClickRedirectLink(finalPage, taskId);
-        await this.tryClickProceedButton(finalPage, taskId);
+
+        finalPage = await this.tryClickRedirectLink(finalPage, taskId);
       }
+      await new Promise((resolve) => setTimeout(resolve, 30000));
 
       await this.safeExecute(finalPage, () =>
         this.simulateScrolling(finalPage, humanize, false, taskId, 'down'),
@@ -446,148 +445,52 @@ export class TaskProcessorService {
 
   private async tryClickRedirectLink(page: Page, taskId: string) {
     const taskPrefix = `[TASK_${taskId}]`;
-    try {
-      const beforeUrl = page.url();
-      const result = await page.evaluate(() => {
-        const links = Array.from(document.querySelectorAll('a[href]'));
-        const debugLinks = links.map((a) => ({
-          href: a.getAttribute('href'),
-          text: a.textContent?.trim(),
-        }));
-
-        (window as any).__debugLinks = debugLinks;
-        const target = links.find((a) => {
-          const href = a.getAttribute('href') || '';
-          return (
-            (href.startsWith('http') && !href.includes(window.location.hostname)) ||
-            a.getAttribute('target') === '_blank'
-          );
-        });
-        if (target) {
-          (window as any).__clickedLink = {
-            href: target.getAttribute('href'),
-            text: target.textContent?.trim(),
-          };
-          (target as HTMLElement).click();
-          return true;
-        }
-        return false;
-      });
-      const debugLinks = (await page.evaluate('window.__debugLinks')) as Array<{
-        href: string;
-        text: string;
-      }>;
-      this.logger.info(`${taskPrefix} [tryClickRedirectLink] Found links: ${debugLinks.length}`);
-      debugLinks.forEach((l, i) =>
-        this.logger.info(
-          `${taskPrefix} [tryClickRedirectLink] [${i}] href=${l.href} text=${l.text}`,
-        ),
-      );
-      if (result) {
-        const clicked = (await page.evaluate('window.__clickedLink')) as {
-          href: string;
-          text: string;
-        };
-        this.logger.info(
-          `${taskPrefix} [tryClickRedirectLink] Clicked link: href=${clicked.href} text=${clicked.text}`,
-        );
-        await page
-          .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 })
-          .catch(() => {});
-        const afterUrl = page.url();
-        this.logger.info(
-          `${taskPrefix} [tryClickRedirectLink] URL before: ${beforeUrl}, after: ${afterUrl}`,
-        );
-      } else {
-        this.logger.warn(
-          `${taskPrefix} [tryClickRedirectLink] Could not find redirect link on the page.`,
-        );
-      }
-    } catch (e) {
-      this.logger.warn(`${taskPrefix} Error trying to click redirect link: ${e.message}`);
+    this.logger.info(`[TASK_${taskId}] Humanized scroll & move for 60s…`);
+    const start = Date.now();
+    while (Date.now() - start < 60_000) {
+      await this.safeExecute(page, () => this.simulateScrolling(page, true, false, taskId, 'down'));
+      await new Promise((resolve) => setTimeout(resolve, 500 + Math.random() * 500));
+      await this.safeExecute(page, () => this.simulateRandomClicks(page, true, taskId));
+      await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 700));
+      await this.safeExecute(page, () => this.simulateScrolling(page, true, false, taskId, 'up'));
+      await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 2000));
     }
-  }
 
-  private async tryClickProceedButton(page: Page, taskId: string) {
-    const taskPrefix = `[TASK_${taskId}]`;
     try {
-      const beforeUrl = page.url();
-      const result = await page.evaluate(() => {
-        const texts = ['перейти', 'далее', 'continue', 'next', 'go', 'продовжити', 'продолжить'];
-        const buttons = Array.from(
-          document.querySelectorAll(
-            'button, a[role="button"], input[type=button], input[type=submit]',
-          ),
-        );
-        // @ts-ignore
-        window.__debugButtons = buttons.map((btn) => {
-          let text = '';
-          if ('value' in btn) {
-            text = (btn as HTMLInputElement).value || '';
-          } else {
-            text = btn.textContent || '';
-          }
-          return { text: text.trim(), tag: btn.tagName, class: btn.className };
-        });
-        const target = buttons.find((btn) => {
-          let text = '';
-          if ('value' in btn) {
-            text = (btn as HTMLInputElement).value || '';
-          } else {
-            text = btn.textContent || '';
-          }
-          text = text.toLowerCase();
-          return texts.some((t) => text.includes(t));
-        });
-        if (target) {
-          // @ts-ignore
-          window.__clickedButton = {
-            text: (target.textContent || (target as HTMLInputElement).value || '').trim(),
-            tag: target.tagName,
-            class: target.className,
-          };
-          (target as HTMLElement).click();
-          return true;
-        }
-        return false;
+      await page.evaluate(() => {
+        document.querySelectorAll('a[target="_blank"]').forEach((a) => a.removeAttribute('target'));
       });
-      const debugButtons = (await page.evaluate('window.__debugButtons')) as Array<{
-        tag: string;
-        class: string;
-        text: string;
-      }>;
+
+      const debugLinks: { href: string; text: string }[] = await page.evaluate(() =>
+        Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]')).map((a) => ({
+          href: a.href,
+          text: a.textContent?.trim() || '',
+        })),
+      );
+      this.logger.info(`${taskPrefix} [tryClickRedirectLink] Found ${debugLinks.length} links`);
+
+      const counts: Record<string, number> = {};
+      debugLinks.forEach((l) => {
+        counts[l.href] = (counts[l.href] || 0) + 1;
+      });
+
+      const sorted = Object.entries(counts).sort(([, a], [, b]) => b - a);
+      const targetHref = sorted.length > 0 ? sorted[0][0] : null;
+
+      if (!targetHref) {
+        this.logger.warn(`${taskPrefix} [tryClickRedirectLink] No links to redirect to.`);
+        return page;
+      }
+
       this.logger.info(
-        `${taskPrefix} [tryClickProceedButton] Found buttons: ${debugButtons.length}`,
+        `${taskPrefix} [tryClickRedirectLink] Redirecting to most frequent href: ${targetHref} (count=${counts[targetHref]})`,
       );
-      debugButtons.forEach((b, i) =>
-        this.logger.info(
-          `${taskPrefix} [tryClickProceedButton] [${i}] tag=${b.tag} class=${b.class} text=${b.text}`,
-        ),
-      );
-      if (result) {
-        const clicked = (await page.evaluate('window.__clickedButton')) as {
-          tag: string;
-          class: string;
-          text: string;
-        };
-        this.logger.info(
-          `${taskPrefix} [tryClickProceedButton] Clicked button: tag=${clicked.tag} class=${clicked.class} text=${clicked.text}`,
-        );
-        await page
-          .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 })
-          .catch(() => {});
-        const afterUrl = page.url();
-        this.logger.info(
-          `${taskPrefix} [tryClickProceedButton] URL before: ${beforeUrl}, after: ${afterUrl}`,
-        );
-      } else {
-        this.logger.warn(
-          `${taskPrefix} [tryClickProceedButton] Could not find "Go/Next/Continue" button on the site.`,
-        );
-      }
+      await page.goto(targetHref, { waitUntil: 'domcontentloaded', timeout: 10000 });
+      this.logger.info(`${taskPrefix} [tryClickRedirectLink] URL now: ${page.url()}`);
     } catch (e) {
-      this.logger.warn(`${taskPrefix} Error trying to click proceed button: ${e.message}`);
+      this.logger.warn(`${taskPrefix} Error in tryClickRedirectLink: ${e.message}`);
     }
+    return page;
   }
 
   private async safeExecute(page: Page, action: () => Promise<void>): Promise<void> {
@@ -618,7 +521,6 @@ export class TaskProcessorService {
     direction: 'down' | 'up' = 'down',
   ): Promise<void> {
     const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
-    this.logger.info(`${taskPrefix} Simulating natural scrolling (${direction})...`);
 
     if (page.isClosed()) {
       this.logger.warn(`${taskPrefix} Page is closed, skipping scrolling`);
@@ -629,10 +531,6 @@ export class TaskProcessorService {
       const pageHeight = await page.evaluate(() => document.body.scrollHeight);
       const viewportHeight = await page.evaluate(() => window.innerHeight);
       const currentScrollY = await page.evaluate(() => window.scrollY);
-
-      this.logger.info(
-        `${taskPrefix} Page height: ${pageHeight}px, Viewport height: ${viewportHeight}px, Current scroll: ${currentScrollY}px`,
-      );
 
       if (direction === 'down') {
         let currentPosition = currentScrollY;
@@ -645,7 +543,6 @@ export class TaskProcessorService {
           currentPosition += scrollAmount;
 
           if (currentPosition >= pageHeight - viewportHeight) {
-            this.logger.info(`${taskPrefix} Reached bottom of page, stopping scroll down`);
             break;
           }
 
@@ -658,10 +555,6 @@ export class TaskProcessorService {
 
           const pauseTime = 500 + Math.random() * 800;
           await new Promise((resolve) => setTimeout(resolve, pauseTime));
-
-          if (shouldClickRedirectLink && taskId) {
-            await this.tryClickRedirectLink(page, taskId);
-          }
 
           if (humanize && Math.random() < 0.15) {
             const backScroll = Math.floor(Math.random() * 100) + 50;
@@ -683,8 +576,6 @@ export class TaskProcessorService {
         });
         await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
       }
-
-      this.logger.info(`${taskPrefix} Natural scrolling (${direction}) completed`);
     } catch (error) {
       if (error.message.includes('Execution context was destroyed')) {
         this.logger.warn(`${taskPrefix} Page context destroyed during scrolling`);
@@ -696,7 +587,6 @@ export class TaskProcessorService {
 
   private async simulateRandomClicks(page: Page, humanize = false, taskId: string): Promise<void> {
     const taskPrefix = `[TASK_${taskId}]`;
-    this.logger.info(`${taskPrefix} Simulating natural clicks and navigation...`);
 
     if (page.isClosed()) {
       this.logger.warn(`${taskPrefix} Page is closed, skipping random clicks`);
@@ -787,7 +677,6 @@ export class TaskProcessorService {
           await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1500));
 
           if (element.href && !element.href.startsWith('#')) {
-            this.logger.info(`${taskPrefix} Waiting for page navigation...`);
             await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 5000 }).catch(() => {
               this.logger.warn(`${taskPrefix} Page navigation timeout`);
             });
@@ -798,8 +687,6 @@ export class TaskProcessorService {
           this.logger.warn(`${taskPrefix} Failed to click element: ${error.message}`);
         }
       }
-
-      this.logger.info(`${taskPrefix} Natural clicking and navigation completed`);
     } catch (error) {
       if (
         error.message.includes('Execution context was destroyed') ||
@@ -841,7 +728,9 @@ export class TaskProcessorService {
 
       if (formInfo.length === 0) {
         this.logger.warn(`${taskPrefix} ❌ No forms found on the page`);
-        return;
+        throw new Error(
+          `${taskPrefix} No forms found on the page, cannot proceed with form filling`,
+        );
       }
 
       this.logger.info(`${taskPrefix} 📋 Found ${formInfo.length} form(s) on the page:`);
@@ -1206,7 +1095,9 @@ export class TaskProcessorService {
         const formsHtml = await this.aiService.extractFormHtml(page);
         if (!formsHtml.trim()) {
           this.logger.warn(`${taskPrefix} No forms found on the page`);
-          return;
+          throw new Error(
+            `${taskPrefix} No forms found on the page, cannot proceed with form filling`,
+          );
         }
         analysis = await this.aiService.analyzeForms(formsHtml);
         this.logger.info(`${taskPrefix} AI analysis successful`);
