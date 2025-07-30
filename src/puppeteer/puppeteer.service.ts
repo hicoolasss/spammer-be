@@ -476,7 +476,7 @@ export class PuppeteerService implements OnModuleDestroy {
       this.browserPool.delete(locale as unknown as CountryCode);
     });
     return browser;
-  }     
+  }
 
   private async getOrCreateBrowserForGeo(
     countryCode: CountryCode,

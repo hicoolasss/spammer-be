@@ -13,7 +13,6 @@ import { Browser, Page } from 'puppeteer';
 import { AIService } from '../ai/ai.service';
 import { PuppeteerService } from '../puppeteer/puppeteer.service';
 import { RedisService } from '../redis/redis.service';
-import { error } from 'console';
 
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
   return Promise.race([
@@ -351,7 +350,7 @@ export class TaskProcessorService {
 
         finalPage = await this.tryClickRedirectLink(finalPage, taskId);
       }
-      await new Promise((resolve) => setTimeout(resolve, 60000));
+      await new Promise((resolve) => setTimeout(resolve, 30000));
 
       await this.safeExecute(finalPage, () =>
         this.simulateScrolling(finalPage, humanize, false, taskId, 'down'),
@@ -569,7 +568,6 @@ export class TaskProcessorService {
         });
         await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
       }
-
     } catch (error) {
       if (error.message.includes('Execution context was destroyed')) {
         this.logger.warn(`${taskPrefix} Page context destroyed during scrolling`);
@@ -681,7 +679,6 @@ export class TaskProcessorService {
           this.logger.warn(`${taskPrefix} Failed to click element: ${error.message}`);
         }
       }
-
     } catch (error) {
       if (
         error.message.includes('Execution context was destroyed') ||
@@ -723,7 +720,7 @@ export class TaskProcessorService {
 
       if (formInfo.length === 0) {
         this.logger.warn(`${taskPrefix} ❌ No forms found on the page`);
-        throw new error(
+        throw new Error(
           `${taskPrefix} No forms found on the page, cannot proceed with form filling`,
         );
       }
