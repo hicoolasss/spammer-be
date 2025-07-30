@@ -935,7 +935,7 @@ export class TaskProcessorService {
   }
 
   private async simulateTypo(page: Page, selector: string, taskPrefix: string): Promise<void> {
-    const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26)); // случайная буква
+    const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26));
     this.logger.debug(`${taskPrefix} ⌨️ Made typo: "${typoChar}", correcting...`);
 
     await this.addCharacter(page, selector, typoChar);
@@ -972,7 +972,7 @@ export class TaskProcessorService {
       }, selector);
 
       if (rect) {
-        const steps = 10 + Math.floor(Math.random() * 10); // 10-20 шагов
+        const steps = 10 + Math.floor(Math.random() * 10);
         await page.mouse.move(rect.x, rect.y, { steps });
 
         await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 300));
@@ -1178,11 +1178,9 @@ export class TaskProcessorService {
           }
           await new Promise((resolve) => setTimeout(resolve, 500 + Math.random() * 500));
 
-          // Имитация движения мыши к полю (только в режиме humanize)
           if (humanize) {
             await this.simulateMouseMovement(page, field.selector, taskId);
 
-            // Случайная задержка перед фокусом (20% вероятность)
             if (Math.random() < 0.2) {
               this.logger.debug(
                 `${taskPrefix} (Humanize) Delaying focus on field: ${field.selector}`,
@@ -1191,13 +1189,11 @@ export class TaskProcessorService {
             }
           }
 
-          // Заполнение поля с учетом его типа
           await this.fillFieldByType(page, field, value, humanize, taskId);
           this.logger.info(
             `${taskPrefix} ✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
           );
 
-          // Имитация переходов между полями
           await this.simulateFieldTransition(page, taskId);
         } catch (error) {
           this.logger.warn(
