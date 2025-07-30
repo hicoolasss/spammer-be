@@ -472,17 +472,11 @@ export class PuppeteerService implements OnModuleDestroy {
     } catch (e) {
       throw new InternalServerErrorException(`Failed to launch browser: ${e.message}`);
     }
-    try {
-      const pages = await browser.pages();
-      await Promise.all(pages.map((p) => p.close()));
-    } catch {
-      // Ignore
-    }
     browser.on('disconnected', () => {
       this.browserPool.delete(locale as unknown as CountryCode);
     });
     return browser;
-  }
+  }     
 
   private async getOrCreateBrowserForGeo(
     countryCode: CountryCode,
