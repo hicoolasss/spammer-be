@@ -1,18 +1,13 @@
 import { LeadData } from '@interfaces';
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { getRandomItem, LogWrapper, USER_AGENTS } from '@utils';
 import { RedisClientType } from 'redis';
-
-import { REDIS_CLIENT } from './redis.module';
 
 @Injectable()
 export class RedisService {
   private readonly logger = new LogWrapper(RedisService.name);
 
-  constructor(
-    @Inject(REDIS_CLIENT)
-    private redisClient: RedisClientType,
-  ) {}
+  constructor(private redisClient: RedisClientType) {}
 
   async getFbclidData(fbclKey: string): Promise<string> {
     return this.getRandomListItem<string>(

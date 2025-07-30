@@ -5,7 +5,6 @@ import { Task, TaskSchema } from '@task/task.schema';
 
 import { AIModule } from '../ai/ai.module';
 import { PuppeteerModule } from '../puppeteer/puppeteer.module';
-import { RedisServiceModule } from '../redis/redis-service.module';
 import { AgendaService } from './agenda.service';
 import { TaskProcessorService } from './task-processor.service';
 
@@ -16,7 +15,6 @@ import { TaskProcessorService } from './task-processor.service';
       { name: GeoProfile.name, schema: GeoProfileSchema },
     ]),
     PuppeteerModule,
-    RedisServiceModule,
     AIModule,
   ],
   providers: [AgendaService, TaskProcessorService],

@@ -74,11 +74,21 @@ export class TaskProcessorService {
       try {
         await this.processTask(task);
       } finally {
-        task.isRunning = false;
-        await task.save();
+        try {
+          task.isRunning = false;
+          await task.save();
+        } catch (saveError) {
+          this.logger.error(`[TASK_${taskId}] Failed to reset isRunning flag: ${saveError.message}`);
+          await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
+        }
       }
     } catch (error) {
       this.logger.error(`[TASK_${taskId}] Error processing task: ${error.message}`, error);
+      try {
+        await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
+      } catch (resetError) {
+        this.logger.error(`[TASK_${taskId}] Failed to reset isRunning after error: ${resetError.message}`);
+      }
     }
   }
 

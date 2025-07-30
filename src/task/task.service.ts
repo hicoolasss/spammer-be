@@ -1,3 +1,4 @@
+import { TaskStatus } from '@enums';
 import { GeoProfileDto } from '@geo-profile/dto/geo-profile.dto';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -10,11 +11,15 @@ import {
 } from '@task/dto/task.dto';
 import { FilterQuery, Model } from 'mongoose';
 
+import { AgendaService } from '../jobs/agenda.service';
 import { Task, TaskDocument } from './task.schema';
 
 @Injectable()
 export class TaskService {
-  constructor(@InjectModel(Task.name) private taskModel: Model<Task>) {}
+  constructor(
+    @InjectModel(Task.name) private taskModel: Model<Task>,
+    private readonly agendaService: AgendaService,
+  ) {}
 
   async createTask(dto: CreateTaskDto, userId: string): Promise<TaskDto> {
     const created = await this.taskModel.create({
@@ -32,6 +37,8 @@ export class TaskService {
       },
       shouldClickRedirectLink: dto.shouldClickRedirectLink ?? false,
     });
+
+    await this.rescheduleAgendaJob(created);
 
     const task = await this.taskModel
       .findById(created._id)
@@ -90,7 +97,11 @@ export class TaskService {
       .limit(limit)
       .populate<{
         profileId: GeoProfileDto;
-      }>('profileId', 'name geo leadKey userAgentKey fbclidKey leadCount userAgentCount fbclidCount createdBy createdAt', 'GeoProfile')
+      }>(
+        'profileId',
+        'name geo leadKey userAgentKey fbclidKey leadCount userAgentCount fbclidCount createdBy createdAt',
+        'GeoProfile',
+      )
       .lean()
       .exec();
 
@@ -113,7 +124,7 @@ export class TaskService {
           updatedAt: task.updatedAt.toISOString(),
           shouldClickRedirectLink: task.shouldClickRedirectLink,
         };
-      })
+      }),
     );
 
     return {
@@ -125,6 +136,7 @@ export class TaskService {
 
   async deleteTask(taskId: string): Promise<void> {
     await this.taskModel.findByIdAndDelete(taskId).exec();
+    await this.agendaService.cancelTaskJob(taskId);
   }
 
   async updateTask(taskId: string, dto: UpdateTaskDto): Promise<TaskDto> {
@@ -136,11 +148,13 @@ export class TaskService {
 
     Object.assign(task, dto);
     await task.save();
+    await this.rescheduleAgendaJob(task);
     const populatedTask = await this.taskModel
       .findById(taskId)
       .populate<{ profileId: GeoProfileDto }>({
         path: 'profileId',
-        select: 'name geo leadKey userAgentKey fbclidKey leadCount userAgentCount fbclidCount createdBy createdAt',
+        select:
+          'name geo leadKey userAgentKey fbclidKey leadCount userAgentCount fbclidCount createdBy createdAt',
       })
       .exec();
 
@@ -187,5 +201,14 @@ export class TaskService {
       successCount,
       redirects,
     };
+  }
+
+  private async rescheduleAgendaJob(task: Task) {
+    const taskId = (task as any)._id.toString();
+    if (task.status === TaskStatus.ACTIVE) {
+      await this.agendaService.scheduleTaskJob(task);
+    } else if (taskId) {
+      await this.agendaService.cancelTaskJob(taskId);
+    }
   }
 }
