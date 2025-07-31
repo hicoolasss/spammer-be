@@ -5,7 +5,6 @@ import { TaskController } from '@task/task.controller';
 import { Task, TaskSchema } from '@task/task.schema';
 import { TaskService } from '@task/task.service';
 
-import { AgendaService } from '../jobs/agenda.service';
 import { JobsModule } from '../jobs/jobs.module';
 import { RedisModule } from '../redis/redis.module';
 
@@ -19,6 +18,6 @@ import { RedisModule } from '../redis/redis.module';
     JobsModule,
   ],
   controllers: [TaskController],
-  providers: [TaskService, AgendaService],
+  providers: [TaskService],
 })
 export class TaskModule {}
