@@ -783,12 +783,11 @@ export class TaskProcessorService {
     page: Page,
     field: FormField,
     value: string,
-    humanize: boolean,
     taskId?: string,
   ): Promise<void> {
     const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
 
-    const typingConfig = this.getTypingConfig(field.type, humanize);
+    const typingConfig = this.getTypingConfig(field.type);
 
     this.logger.debug(
       `${taskPrefix} ${typingConfig.icon} Filling ${field.type} field: ${field.selector}`,
@@ -797,50 +796,45 @@ export class TaskProcessorService {
     await this.fillFieldWithTyping(page, field.selector, value, typingConfig, taskId);
   }
 
-  private getTypingConfig(fieldType: string, humanize: boolean) {
+  private getTypingConfig(fieldType: string) {
     const baseConfig = {
       icon: '📝',
-      baseDelay: 100,
+      baseDelay: 1000,
       typingSpeed: 50,
       typoChance: 0.05,
       pauseChance: 0.1,
       pauseDuration: { min: 500, max: 1000 },
     };
 
-    if (!humanize) {
-      return {
-        ...baseConfig,
-        baseDelay: 30,
-        typingSpeed: 20,
-        typoChance: 0,
-        pauseChance: 0,
-      };
-    }
 
     switch (fieldType) {
       case 'email':
         return {
           ...baseConfig,
           icon: '📧',
-          baseDelay: 80,
+          baseDelay: 800,
           typingSpeed: 40,
+          pauseChance: 0.55,
+          pauseDuration: { min: 800, max: 1500 },
         };
 
       case 'phone':
         return {
           ...baseConfig,
           icon: '📞',
-          baseDelay: 120,
+          baseDelay: 1200,
           typingSpeed: 60,
+          pauseChance: 0.5,
+          pauseDuration: { min: 800, max: 1500 },
         };
 
       case 'name':
         return {
           ...baseConfig,
           icon: '👤',
-          baseDelay: 150,
+          baseDelay: 1500,
           typingSpeed: 100,
-          pauseChance: 0.15,
+          pauseChance: 0.35,
           pauseDuration: { min: 800, max: 1500 },
         };
 
@@ -848,9 +842,9 @@ export class TaskProcessorService {
         return {
           ...baseConfig,
           icon: '👤',
-          baseDelay: 150,
+          baseDelay: 1500,
           typingSpeed: 100,
-          pauseChance: 0.15,
+          pauseChance: 0.45,
           pauseDuration: { min: 800, max: 1500 },
         };
 
@@ -858,7 +852,7 @@ export class TaskProcessorService {
         return {
           ...baseConfig,
           icon: '❓',
-          baseDelay: 100,
+          baseDelay: 1000,
           typingSpeed: 50,
         };
     }
@@ -1189,7 +1183,7 @@ export class TaskProcessorService {
             }
           }
 
-          await this.fillFieldByType(page, field, value, humanize, taskId);
+          await this.fillFieldByType(page, field, value, taskId);
           this.logger.info(
             `${taskPrefix} ✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
           );
