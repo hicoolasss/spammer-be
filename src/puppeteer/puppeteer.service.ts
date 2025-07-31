@@ -136,7 +136,7 @@ export class PuppeteerService implements OnModuleDestroy {
             this.logger.debug(
               `[acquirePage] geo=${proxyGeo} | После создания браузера: this.browserPool.has(${proxyGeo})=${this.browserPool.has(proxyGeo)}, pool.length=${this.browserPool.get(proxyGeo)?.length || 0}`,
             );
-            this._drainGeoQueue(proxyGeo, [], MAX_TABS);
+            this._drainGeoQueue(proxyGeo, this.browserPool.get(proxyGeo) || [], MAX_TABS);
             return page;
           } catch (err) {
             newWrapper.reservedTabs = 0;
@@ -201,7 +201,7 @@ export class PuppeteerService implements OnModuleDestroy {
               creativeId,
               proxyGeo,
             );
-            this._drainGeoQueue(proxyGeo, [], MAX_TABS);
+            this._drainGeoQueue(proxyGeo, this.browserPool.get(proxyGeo) || [], MAX_TABS);
             return page;
           } catch (err) {
             newWrapper.reservedTabs = 0;
@@ -339,28 +339,35 @@ export class PuppeteerService implements OnModuleDestroy {
 
   async releasePage(page: Page, geo: CountryCode): Promise<void> {
     const pool = this.browserPool.get(geo) || [];
+
     for (const wrapper of pool) {
       const idx = wrapper.pages.indexOf(page);
+
       if (idx === -1) continue;
+
       wrapper.pages.splice(idx, 1);
       wrapper.reservedTabs--;
+
       await page.setRequestInterception(false).catch(() => {});
       page.removeAllListeners('request');
       await page.close().catch(() => {});
+
       if (wrapper.pages.length === 0) {
         await wrapper.context.close().catch(() => {});
         await wrapper.browser.close().catch(() => {});
         pool.splice(pool.indexOf(wrapper), 1);
+
         if (pool.length === 0) {
           this.browserPool.delete(geo);
         }
       }
+
       this.logger.debug(
         `[releasePage] geo=${geo} | Освобождён слот, browsers=${pool.length}, tabs=[${pool.map((w) => w.pages.length).join(',')}]`,
       );
 
       const MAX_TABS = Number(process.env.MAX_TABS_PER_BROWSER) || 15;
-      this._drainGeoQueue(geo, [], MAX_TABS);
+      this._drainGeoQueue(geo, pool, MAX_TABS);
       return;
     }
   }
@@ -390,8 +397,15 @@ export class PuppeteerService implements OnModuleDestroy {
     } catch (e) {
       throw new InternalServerErrorException(`Failed to launch browser: ${e.message}`);
     }
+    try {
+      const pages = await browser.pages();
+      await Promise.all(pages.map((p) => p.close()));
+    } catch {
+      // Ignore
+    }
     browser.on('disconnected', () => {
-      this.browserPool.delete(locale as unknown as CountryCode);
+      this.logger.warn(`[createBrowser] Browser disconnected, clearing all pools`);
+      this.browserPool.clear();
     });
     return browser;
   }
@@ -486,11 +500,12 @@ export class PuppeteerService implements OnModuleDestroy {
     let freeSlots = currentPool.reduce((acc, w) => acc + (MAX_TABS - w.reservedTabs), 0);
     const MAX_BROWSERS = Number(process.env.MAX_BROWSERS_PER_GEO) || 5;
     this.logger.debug(
-      `[_drainGeoQueue] geo=${geo} | browsers=${currentPool.length} | tabs=[${currentPool.map((w) => w.pages.length).join(',')}] | reserved=[${currentPool.map((w) => w.reservedTabs).join(',')}] | freeSlots=${freeSlots} | queueLength=${queue?.length || 0}`,
+      `[_drainGeoQueue] geo=${geo} | browsers=${currentPool.length} | tabs=[${currentPool.map((w) => w.pages.length).join(',')}] | reserved=[${currentPool.map((w) => w.reservedTabs).join(',')}] | freeSlots=${freeSlots} | queueLength=${queue?.length || 0} | passedPoolLength=${pool.length}`,
     );
     while (queue && queue.length > 0 && (freeSlots > 0 || currentPool.length < MAX_BROWSERS)) {
       const next = queue.shift();
       if (!next) break;
+
       if (freeSlots > 0) {
         this.logger.debug(
           `[_drainGeoQueue] geo=${geo} | Запускаю задачу из очереди, осталось слотов: ${freeSlots}`,
