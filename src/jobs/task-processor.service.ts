@@ -798,11 +798,10 @@ export class TaskProcessorService {
 
   private getTypingConfig(fieldType: string) {
     const baseConfig = {
-      icon: '📝',
       baseDelay: 1000,
-      typingSpeed: 50,
-      typoChance: 0.05,
-      pauseChance: 0.1,
+      typingSpeed: 15,
+      typoChance: 0.2,
+      pauseChance: 0.2,
       pauseDuration: { min: 500, max: 1000 },
     };
 
@@ -813,7 +812,7 @@ export class TaskProcessorService {
           ...baseConfig,
           icon: '📧',
           baseDelay: 800,
-          typingSpeed: 40,
+          typingSpeed: 14,
           pauseChance: 0.55,
           pauseDuration: { min: 800, max: 1500 },
         };
@@ -823,7 +822,7 @@ export class TaskProcessorService {
           ...baseConfig,
           icon: '📞',
           baseDelay: 1200,
-          typingSpeed: 60,
+          typingSpeed: 23,
           pauseChance: 0.5,
           pauseDuration: { min: 800, max: 1500 },
         };
@@ -833,7 +832,7 @@ export class TaskProcessorService {
           ...baseConfig,
           icon: '👤',
           baseDelay: 1500,
-          typingSpeed: 100,
+          typingSpeed: 16,
           pauseChance: 0.35,
           pauseDuration: { min: 800, max: 1500 },
         };
@@ -843,7 +842,7 @@ export class TaskProcessorService {
           ...baseConfig,
           icon: '👤',
           baseDelay: 1500,
-          typingSpeed: 100,
+          typingSpeed: 18,
           pauseChance: 0.45,
           pauseDuration: { min: 800, max: 1500 },
         };
@@ -853,7 +852,7 @@ export class TaskProcessorService {
           ...baseConfig,
           icon: '❓',
           baseDelay: 1000,
-          typingSpeed: 50,
+          typingSpeed: 20,
         };
     }
   }
