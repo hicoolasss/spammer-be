@@ -824,6 +824,7 @@ export class TaskProcessorService {
           baseDelay: 1200,
           typingSpeed: 23,
           pauseChance: 0.5,
+          typoChance: 0,
           pauseDuration: { min: 800, max: 1500 },
         };
 
