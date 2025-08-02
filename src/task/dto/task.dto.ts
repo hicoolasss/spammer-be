@@ -16,6 +16,7 @@ export interface TaskDto {
   updatedAt: string;
   lastRunAt?: string;
   shouldClickRedirectLink?: boolean;
+  isQuiz?: boolean;
 }
 
 export interface TaskStatisticsDto {
@@ -36,6 +37,7 @@ export interface CreateTaskDto {
   timeFrom: string;
   timeTo: string;
   shouldClickRedirectLink?: boolean;
+  isQuiz?: boolean;
 }
 
 export interface UpdateTaskDto {
@@ -47,6 +49,7 @@ export interface UpdateTaskDto {
   timeFrom?: string;
   timeTo?: string;
   shouldClickRedirectLink?: boolean;
+  isQuiz?: boolean;
 }
 
 export interface TaskListResponseDto {

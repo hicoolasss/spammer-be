@@ -1,4 +1,4 @@
-import { FormAnalysisResult } from '@interfaces';
+import { FormAnalysisResult, LeadData } from '@interfaces';
 import { Injectable } from '@nestjs/common';
 import { LogWrapper } from '@utils';
 
@@ -166,14 +166,6 @@ ${visibleInputs
           .join('\n');
       });
 
-      const maxLength = 30000;
-      if (formsHtml.length > maxLength) {
-        this.logger.warn(
-          `Form HTML too large (${formsHtml.length} chars), truncating to ${maxLength} chars`,
-        );
-        return formsHtml.substring(0, maxLength) + '... (truncated)';
-      }
-
       return formsHtml;
     } catch (error) {
       this.logger.error(`Error extracting form HTML: ${error.message}`);
@@ -299,6 +291,104 @@ ${visibleInputs
     } catch (error) {
       this.logger.error(`Error in fallback form analysis: ${error.message}`);
       throw new Error('Failed to analyze forms with fallback method');
+    }
+  }
+
+  async generateFormFillScript(formsHtml: string, leadData: LeadData): Promise<string> {
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.OPEN_AI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: `You are an expert at generating JavaScript code to fill HTML forms. Your task is to create a self-executing function that fills form fields with provided lead data.
+
+RULES:
+1. Generate ONLY JavaScript code that can be executed directly in browser console
+2. Use the exact field selectors from the form analysis
+3. Fill visible fields with appropriate lead data
+4. Clear honeypot fields (website, url, comment, notes, etc.)
+5. Submit the form at the end
+6. Handle cases where fields might not exist
+7. Use proper error handling
+8. Return ONLY the JavaScript code without any explanations or markdown
+
+LEAD DATA FORMAT:
+- name: string
+- lastname: string  
+- email: string
+- phone: string
+
+EXAMPLE OUTPUT FORMAT:
+(() => {
+  const form = document.querySelector('form#commentForm');
+  if (!form) {
+    console.error('Форма не найдена');
+    return;
+  }
+
+  form.querySelector('input[name="name"]').value = 'Ivan';
+  form.querySelector('input[name="last"]').value = 'Petrenko';
+  form.querySelector('input[name="email"]').value = 'ivan.petrenko@example.com';
+  form.querySelector('input[name="phone"]').value = '501234567';
+  form.querySelector('input[name="phonecc"]').value = '380';
+
+  ['website', 'url', 'comment', 'notes'].forEach((name) => {
+    const input = form.querySelector(\`input[name="\${name}"]\`);
+    if (input) input.value = '';
+  });
+
+  form.submit();
+})();`,
+            },
+            {
+              role: 'user',
+              content: `Generate JavaScript code to fill this form with lead data:
+
+FORMS HTML:
+${formsHtml}
+
+LEAD DATA:
+${JSON.stringify(leadData, null, 2)}
+
+Return ONLY the JavaScript code that can be executed directly in browser console.`,
+            },
+          ],
+          max_tokens: 1500,
+          temperature: 0,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        this.logger.error(`OpenAI API error: ${data.error.message}`);
+        throw new Error('Failed to generate form fill script');
+      }
+
+      const content = data.choices[0]?.message?.content?.trim();
+      if (!content) {
+        throw new Error('Empty response from OpenAI');
+      }
+
+      const jsCodeMatch = content.match(/```javascript\s*([\s\S]*?)\s*```/) ||
+        content.match(/```js\s*([\s\S]*?)\s*```/) ||
+        content.match(/```\s*([\s\S]*?)\s*```/) || [null, content];
+
+      const jsCode = jsCodeMatch[1] || content;
+
+      this.logger.info(`Form fill script generated successfully`);
+
+      return jsCode;
+    } catch (error) {
+      this.logger.error(`Error generating form fill script: ${error.message}`, error);
+      throw new Error('Failed to generate form fill script with AI');
     }
   }
 }

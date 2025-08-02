@@ -36,6 +36,7 @@ export class TaskService {
         success: {},
       },
       shouldClickRedirectLink: dto.shouldClickRedirectLink ?? false,
+      isQuiz: dto.isQuiz ?? false,
     });
 
     await this.rescheduleAgendaJob(created);
@@ -68,6 +69,7 @@ export class TaskService {
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString(),
       shouldClickRedirectLink: task.shouldClickRedirectLink,
+      isQuiz: task.isQuiz,
     };
   }
 
@@ -123,6 +125,7 @@ export class TaskService {
           createdAt: task.createdAt.toISOString(),
           updatedAt: task.updatedAt.toISOString(),
           shouldClickRedirectLink: task.shouldClickRedirectLink,
+          isQuiz: task.isQuiz,
         };
       }),
     );
@@ -174,6 +177,7 @@ export class TaskService {
       createdAt: populatedTask!.createdAt.toISOString(),
       updatedAt: populatedTask!.updatedAt.toISOString(),
       shouldClickRedirectLink: populatedTask!.shouldClickRedirectLink,
+      isQuiz: populatedTask!.isQuiz,
     };
   }
 
@@ -203,8 +207,8 @@ export class TaskService {
     };
   }
 
-  private async rescheduleAgendaJob(task: Task) {
-    const taskId = (task as any)._id.toString();
+  private async rescheduleAgendaJob(task: TaskDocument) {
+    const taskId = task._id.toString();
     if (task.status === TaskStatus.ACTIVE) {
       await this.agendaService.scheduleTaskJob(task);
     } else if (taskId) {
