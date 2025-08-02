@@ -21,22 +21,23 @@ export class AIService {
           messages: [
             {
               role: 'system',
-              content: `You are an expert at analyzing HTML forms. Your task is to find the correct form for filling lead data and determine selectors for name, surname, phone, email fields.
+              content: `You are an expert at analyzing HTML forms. Your task is to find the correct form for filling lead data and determine selectors for name, surname, phone, email fields, and any checkboxes.
 
 RULES:
 1. Ignore hidden fields (hidden, display:none, visibility:hidden)
 2. Ignore fields with type="hidden"
-3. Look only for visible input fields with type="text", "email", "tel" or without type
+3. Look only for visible input fields with type="text", "email", "tel", "checkbox" or without a type attribute
 4. Analyze name, id, placeholder, label to determine field purpose
-5. Return JSON in strictly defined format
-6. Indicate confidence (0-1) for each field and form
-7. Choose form with the most suitable fields
+5. Collect all checkboxes: capture selector + whatever name/label text exists (do not assume any fixed names/labels)
+6. Return JSON in strictly defined format
+7. Indicate confidence (0-1) for each field, checkbox, and form
+8. Choose form with the most suitable fields
 
 RETURN ONLY JSON WITHOUT ADDITIONAL TEXT:`,
             },
             {
               role: 'user',
-              content: `Analyze these forms and find the best one for filling lead data (name, surname, phone, email):
+              content: `Analyze these forms and find the best one for filling lead data (name, surname, phone, email), and list all checkboxes:
 
 ${formsHtml}
 
@@ -51,20 +52,46 @@ Return JSON in format:
         "confidence": 0.9
       }
     ],
+    "checkboxes": [
+      {
+        "selector": "input[name='subscribe']",
+        "label": "Subscribe to newsletter",
+        "confidence": 0.8
+      }
+    ],
     "confidence": 0.8,
-    "reason": "Contains all necessary fields"
+    "reason": "Contains all necessary fields and checkboxes"
   },
-  "allForms": [...]
+  "allForms": [
+    {
+      "formIndex": 0,
+      "fields": [
+        {
+          "selector": "input[name='first_name']",
+          "type": "name",
+          "confidence": 0.9
+        }
+      ],
+      "checkboxes": [
+        {
+          "selector": "input[type='checkbox']",
+          "label": "<any label>",
+          "confidence": 0.7
+        }
+      ],
+      "confidence": 0.7,
+      "reason": "Best coverage"
+    }
+  ]
 }`,
             },
           ],
-          max_tokens: 1000,
+          max_tokens: 1400,
           temperature: 0,
         }),
       });
 
       const data = await response.json();
-
       if (data.error) {
         this.logger.error(`OpenAI API error: ${data.error.message}`);
         throw new Error('Failed to analyze forms');
@@ -76,7 +103,6 @@ Return JSON in format:
       }
 
       const jsonMatch = content.match(/\{[\s\S]*\}/);
-
       if (!jsonMatch) {
         throw new Error('Invalid JSON response from OpenAI');
       }
