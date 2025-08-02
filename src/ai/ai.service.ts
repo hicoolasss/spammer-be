@@ -10,35 +10,34 @@ export class AIService {
 
   async analyzeForms(formsHtml: string): Promise<FormAnalysisResult> {
     try {
-      const response = await fetch(
-        'https://api.openai.com/v1/chat/completions',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.OPEN_AI_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              {
-                role: 'system',
-                content: `You are an expert at analyzing HTML forms. Your task is to find the correct form for filling lead data and determine selectors for name, surname, phone, email fields.
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.OPEN_AI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: `You are an expert at analyzing HTML forms. Your task is to find the correct form for filling lead data and determine selectors for name, surname, phone, email fields, and any checkboxes.
 
 RULES:
 1. Ignore hidden fields (hidden, display:none, visibility:hidden)
 2. Ignore fields with type="hidden"
-3. Look only for visible input fields with type="text", "email", "tel" or without type
+3. Look only for visible input fields with type="text", "email", "tel", "checkbox" or without a type attribute
 4. Analyze name, id, placeholder, label to determine field purpose
-5. Return JSON in strictly defined format
-6. Indicate confidence (0-1) for each field and form
-7. Choose form with the most suitable fields
+5. Collect all checkboxes: capture selector + whatever name/label text exists (do not assume any fixed names/labels)
+6. Return JSON in strictly defined format
+7. Indicate confidence (0-1) for each field, checkbox, and form
+8. Choose form with the most suitable fields
 
 RETURN ONLY JSON WITHOUT ADDITIONAL TEXT:`,
-              },
-              {
-                role: 'user',
-                content: `Analyze these forms and find the best one for filling lead data (name, surname, phone, email):
+            },
+            {
+              role: 'user',
+              content: `Analyze these forms and find the best one for filling lead data (name, surname, phone, email), and list all checkboxes:
 
 ${formsHtml}
 
@@ -53,21 +52,46 @@ Return JSON in format:
         "confidence": 0.9
       }
     ],
+    "checkboxes": [
+      {
+        "selector": "input[name='subscribe']",
+        "label": "Subscribe to newsletter",
+        "confidence": 0.8
+      }
+    ],
     "confidence": 0.8,
-    "reason": "Contains all necessary fields"
+    "reason": "Contains all necessary fields and checkboxes"
   },
-  "allForms": [...]
+  "allForms": [
+    {
+      "formIndex": 0,
+      "fields": [
+        {
+          "selector": "input[name='first_name']",
+          "type": "name",
+          "confidence": 0.9
+        }
+      ],
+      "checkboxes": [
+        {
+          "selector": "input[type='checkbox']",
+          "label": "<any label>",
+          "confidence": 0.7
+        }
+      ],
+      "confidence": 0.7,
+      "reason": "Best coverage"
+    }
+  ]
 }`,
-              },
-            ],
-            max_tokens: 1000,
-            temperature: 0,
-          }),
-        },
-      );
+            },
+          ],
+          max_tokens: 1400,
+          temperature: 0,
+        }),
+      });
 
       const data = await response.json();
-
       if (data.error) {
         this.logger.error(`OpenAI API error: ${data.error.message}`);
         throw new Error('Failed to analyze forms');
@@ -79,7 +103,6 @@ Return JSON in format:
       }
 
       const jsonMatch = content.match(/\{[\s\S]*\}/);
-
       if (!jsonMatch) {
         throw new Error('Invalid JSON response from OpenAI');
       }
@@ -116,9 +139,10 @@ Return JSON in format:
               );
             });
 
-            const formHtml = form.outerHTML.length > 5000 
-              ? form.outerHTML.substring(0, 5000) + '... (truncated)'
-              : form.outerHTML;
+            const formHtml =
+              form.outerHTML.length > 5000
+                ? form.outerHTML.substring(0, 5000) + '... (truncated)'
+                : form.outerHTML;
 
             return `
 FORM ${index}:
@@ -144,7 +168,9 @@ ${visibleInputs
 
       const maxLength = 30000;
       if (formsHtml.length > maxLength) {
-        this.logger.warn(`Form HTML too large (${formsHtml.length} chars), truncating to ${maxLength} chars`);
+        this.logger.warn(
+          `Form HTML too large (${formsHtml.length} chars), truncating to ${maxLength} chars`,
+        );
         return formsHtml.substring(0, maxLength) + '... (truncated)';
       }
 
@@ -159,9 +185,9 @@ ${visibleInputs
     try {
       const formData = await page.evaluate(() => {
         const forms = Array.from(document.querySelectorAll('form'));
-        const bestForm = forms.find(form => {
+        const bestForm = forms.find((form) => {
           const inputs = Array.from(form.querySelectorAll('input'));
-          const visibleInputs = inputs.filter(input => {
+          const visibleInputs = inputs.filter((input) => {
             const style = window.getComputedStyle(input);
             const rect = input.getBoundingClientRect();
             return (
@@ -179,7 +205,7 @@ ${visibleInputs
 
         const formIndex = forms.indexOf(bestForm);
         const inputs = Array.from(bestForm.querySelectorAll('input'));
-        const visibleInputs = inputs.filter(input => {
+        const visibleInputs = inputs.filter((input) => {
           const style = window.getComputedStyle(input);
           const rect = input.getBoundingClientRect();
           return (
@@ -191,41 +217,70 @@ ${visibleInputs
           );
         });
 
-        const fields = visibleInputs.map(input => {
-          const name = input.name?.toLowerCase() || '';
-          const id = input.id?.toLowerCase() || '';
-          const placeholder = input.placeholder?.toLowerCase() || '';
-          const type = input.type?.toLowerCase() || 'text';
+        const fields = visibleInputs
+          .map((input) => {
+            const name = input.name?.toLowerCase() || '';
+            const id = input.id?.toLowerCase() || '';
+            const placeholder = input.placeholder?.toLowerCase() || '';
+            const type = input.type?.toLowerCase() || 'text';
 
-          let fieldType = 'unknown';
-          let confidence = 0.5;
+            let fieldType = 'unknown';
+            let confidence = 0.5;
 
-          if (type === 'email' || name.includes('email') || id.includes('email') || placeholder.includes('email')) {
-            fieldType = 'email';
-            confidence = 0.9;
-          } else if (type === 'tel' || name.includes('phone') || name.includes('tel') || id.includes('phone') || id.includes('tel') || placeholder.includes('phone') || placeholder.includes('tel')) {
-            fieldType = 'phone';
-            confidence = 0.9;
-          } else if (name.includes('name') || name.includes('first') || id.includes('name') || id.includes('first') || placeholder.includes('name') || placeholder.includes('first')) {
-            fieldType = 'name';
-            confidence = 0.8;
-          } else if (name.includes('last') || name.includes('surname') || id.includes('last') || id.includes('surname') || placeholder.includes('last') || placeholder.includes('surname')) {
-            fieldType = 'surname';
-            confidence = 0.8;
-          }
+            if (
+              type === 'email' ||
+              name.includes('email') ||
+              id.includes('email') ||
+              placeholder.includes('email')
+            ) {
+              fieldType = 'email';
+              confidence = 0.9;
+            } else if (
+              type === 'tel' ||
+              name.includes('phone') ||
+              name.includes('tel') ||
+              id.includes('phone') ||
+              id.includes('tel') ||
+              placeholder.includes('phone') ||
+              placeholder.includes('tel')
+            ) {
+              fieldType = 'phone';
+              confidence = 0.9;
+            } else if (
+              name.includes('name') ||
+              name.includes('first') ||
+              id.includes('name') ||
+              id.includes('first') ||
+              placeholder.includes('name') ||
+              placeholder.includes('first')
+            ) {
+              fieldType = 'name';
+              confidence = 0.8;
+            } else if (
+              name.includes('last') ||
+              name.includes('surname') ||
+              id.includes('last') ||
+              id.includes('surname') ||
+              placeholder.includes('last') ||
+              placeholder.includes('surname')
+            ) {
+              fieldType = 'surname';
+              confidence = 0.8;
+            }
 
-          return {
-            selector: `input[name="${input.name}"], input[id="${input.id}"]`,
-            type: fieldType,
-            confidence
-          };
-        }).filter(field => field.type !== 'unknown');
+            return {
+              selector: `input[name="${input.name}"], input[id="${input.id}"]`,
+              type: fieldType,
+              confidence,
+            };
+          })
+          .filter((field) => field.type !== 'unknown');
 
         return {
           formIndex,
           fields,
           confidence: 0.7,
-          reason: 'Fallback analysis based on field attributes'
+          reason: 'Fallback analysis based on field attributes',
         };
       });
 
@@ -233,11 +288,13 @@ ${visibleInputs
         throw new Error('No suitable form found for fallback analysis');
       }
 
-      this.logger.info(`Fallback form analysis completed. Form: ${formData.formIndex}, fields: ${formData.fields.length}`);
+      this.logger.info(
+        `Fallback form analysis completed. Form: ${formData.formIndex}, fields: ${formData.fields.length}`,
+      );
 
       return {
         bestForm: formData,
-        allForms: [formData]
+        allForms: [formData],
       };
     } catch (error) {
       this.logger.error(`Error in fallback form analysis: ${error.message}`);
