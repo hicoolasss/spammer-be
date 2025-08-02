@@ -7,7 +7,7 @@ export interface LeadData {
 
 export interface FormField {
   selector: string;
-  type: 'name' | 'surname' | 'phone' | 'email';
+  type: 'name' | 'surname' | 'phone' | 'email' | 'checkbox';
   confidence: number;
 }
 

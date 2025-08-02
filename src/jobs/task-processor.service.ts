@@ -805,7 +805,6 @@ export class TaskProcessorService {
       pauseDuration: { min: 500, max: 1000 },
     };
 
-
     switch (fieldType) {
       case 'email':
         return {
@@ -1199,6 +1198,44 @@ export class TaskProcessorService {
       await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
       const beforeSubmitUrl = page.url();
       this.logger.info(`${taskPrefix} URL before form submission: ${beforeSubmitUrl}`);
+      if (analysis.bestForm.checkboxes?.length) {
+        this.logger.info(
+          `${taskPrefix} Filling ${analysis.bestForm.checkboxes.length} checkboxes…`,
+        );
+        for (const cb of analysis.bestForm.checkboxes) {
+          try {
+            const isChecked = await page.evaluate((sel) => {
+              const el = document.querySelector(sel) as HTMLInputElement;
+              return el?.checked === true;
+            }, cb.selector);
+
+            if (!isChecked) {
+              if (humanize) {
+                await this.simulateMouseMovement(page, cb.selector, taskId);
+                await new Promise((res) => setTimeout(res, 300 + Math.random() * 700));
+              }
+              await page.evaluate((sel) => {
+                const el = document.querySelector(sel) as HTMLInputElement;
+                el?.click();
+              }, cb.selector);
+
+              this.logger.info(
+                `${taskPrefix} ✅ Checked checkbox ${cb.selector}` +
+                  (cb.label ? ` (${cb.label})` : '') +
+                  ` — confidence: ${cb.confidence}`,
+              );
+
+              await new Promise((res) => setTimeout(res, 400 + Math.random() * 600));
+            } else {
+              this.logger.info(`${taskPrefix} ⏩ Checkbox already checked: ${cb.selector}`);
+            }
+          } catch (err) {
+            this.logger.warn(
+              `${taskPrefix} Failed to check checkbox ${cb.selector}: ${err.message}`,
+            );
+          }
+        }
+      }
 
       await this.takeScreenshot(page, taskId, 'after-form-fill');
 
