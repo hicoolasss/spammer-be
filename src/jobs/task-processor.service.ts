@@ -1324,7 +1324,6 @@ export class TaskProcessorService {
         } else {
           this.logger.info(`${taskPrefix} Form submitted but no navigation detected`);
         }
-        // Return the afterSubmitUrl to be used in statistics
         return afterSubmitUrl;
       } catch (error) {
         this.logger.warn(
