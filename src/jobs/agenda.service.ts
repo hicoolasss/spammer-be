@@ -2,7 +2,7 @@ import { CRON_CLEANUP_OLD_JOBS, FIVE_MIN, JOB_CLEANUP_OLD_JOBS, JobPriority } fr
 import { TaskStatus } from '@enums';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Task } from '@task/task.schema';
+import { Task, TaskDocument } from '@task/task.schema';
 import { JobWrapper, LogWrapper } from '@utils';
 import { Job } from 'agenda';
 import { Model } from 'mongoose';
@@ -111,8 +111,8 @@ export class AgendaService implements OnModuleInit {
     };
   }
 
-  async scheduleTaskJob(task: Task) {
-    const taskId = (task as any)._id;
+  async scheduleTaskJob(task: TaskDocument) {
+    const taskId = task._id;
     await this.cancelTaskJob(taskId.toString());
     if (task.status !== TaskStatus.ACTIVE) return;
     const nextRun = this.calculateNextRun(task);

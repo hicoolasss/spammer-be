@@ -163,7 +163,7 @@ export class TaskProcessorService {
         `[TASK_${taskId}] Calling runPuppeteerTask with geo=${geo}, userAgent=${userAgent}, url=${finalUrl}`,
       );
       await withTimeout(
-        this.runPuppeteerTask(task, finalUrl, leadData, userAgent, false),
+        this.runPuppeteerTask(task, finalUrl, leadData, userAgent),
         TIMEOUT_MS,
         () => this.logger.error(`[TASK_${taskId}] Task timed out, closing slot`),
       );
@@ -320,7 +320,6 @@ export class TaskProcessorService {
     finalUrl: string,
     leadData: LeadData,
     userAgent: string,
-    humanize = false,
   ): Promise<void> {
     const { geo, shouldClickRedirectLink } = task;
     const taskId = task._id.toString();
@@ -360,22 +359,14 @@ export class TaskProcessorService {
       }
       await new Promise((resolve) => setTimeout(resolve, 30000));
 
-      await this.safeExecute(finalPage, () =>
-        this.simulateScrolling(finalPage, humanize, false, taskId, 'down'),
-      );
-      await this.safeExecute(finalPage, () =>
-        this.simulateRandomClicks(finalPage, humanize, taskId),
-      );
-      await this.safeExecute(finalPage, () =>
-        this.simulateScrolling(finalPage, humanize, false, taskId, 'up'),
-      );
+      await this.safeExecute(finalPage, () => this.simulateScrolling(finalPage, taskId, 'down'));
+      await this.safeExecute(finalPage, () => this.simulateRandomClicks(finalPage, taskId));
+      await this.safeExecute(finalPage, () => this.simulateScrolling(finalPage, taskId, 'up'));
       await this.safeExecute(finalPage, () => this.findAndOpenForm(finalPage, taskId));
 
       await this.takeScreenshot(finalPage, taskId, 'before-form-fill');
 
-      await this.safeExecute(finalPage, () =>
-        this.fillFormWithData(finalPage, leadData, humanize, taskId),
-      );
+      await this.safeExecute(finalPage, () => this.fillFormWithData(finalPage, leadData, taskId));
 
       if (effectiveUrl.includes('facebook.com/flx/warn')) {
         try {
@@ -445,14 +436,14 @@ export class TaskProcessorService {
 
   private async tryClickRedirectLink(page: Page, taskId: string) {
     const taskPrefix = `[TASK_${taskId}]`;
-    this.logger.info(`[TASK_${taskId}] Humanized scroll & move for 60s…`);
+    this.logger.info(`[TASK_${taskId}] scroll & move for 60s…`);
     const start = Date.now();
     while (Date.now() - start < 60_000) {
-      await this.safeExecute(page, () => this.simulateScrolling(page, true, false, taskId, 'down'));
+      await this.safeExecute(page, () => this.simulateScrolling(page, taskId, 'down'));
       await new Promise((resolve) => setTimeout(resolve, 500 + Math.random() * 500));
-      await this.safeExecute(page, () => this.simulateRandomClicks(page, true, taskId));
+      await this.safeExecute(page, () => this.simulateRandomClicks(page, taskId));
       await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 700));
-      await this.safeExecute(page, () => this.simulateScrolling(page, true, false, taskId, 'up'));
+      await this.safeExecute(page, () => this.simulateScrolling(page, taskId, 'up'));
       await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 2000));
     }
 
@@ -515,8 +506,6 @@ export class TaskProcessorService {
 
   private async simulateScrolling(
     page: Page,
-    humanize = false,
-    shouldClickRedirectLink = false,
     taskId?: string,
     direction: 'down' | 'up' = 'down',
   ): Promise<void> {
@@ -556,7 +545,7 @@ export class TaskProcessorService {
           const pauseTime = 500 + Math.random() * 800;
           await new Promise((resolve) => setTimeout(resolve, pauseTime));
 
-          if (humanize && Math.random() < 0.15) {
+          if (Math.random() < 0.15) {
             const backScroll = Math.floor(Math.random() * 100) + 50;
             await page.evaluate((amount) => {
               window.scrollBy({
@@ -585,7 +574,7 @@ export class TaskProcessorService {
     }
   }
 
-  private async simulateRandomClicks(page: Page, humanize = false, taskId: string): Promise<void> {
+  private async simulateRandomClicks(page: Page, taskId: string): Promise<void> {
     const taskPrefix = `[TASK_${taskId}]`;
 
     if (page.isClosed()) {
@@ -625,12 +614,12 @@ export class TaskProcessorService {
 
       this.logger.info(`${taskPrefix} Found ${clickableElements.length} clickable elements`);
 
-      if (humanize && clickableElements.length > 0) {
+      if (clickableElements.length > 0) {
         const randomClicks = Math.floor(Math.random() * 2) + 1;
         for (let i = 0; i < randomClicks; i++) {
           const el = clickableElements[Math.floor(Math.random() * clickableElements.length)];
           this.logger.info(
-            `${taskPrefix} (Humanize) Randomly clicking on ${el.tagName}: "${el.text}" (${el.href})`,
+            `${taskPrefix} Randomly clicking on ${el.tagName}: "${el.text}" (${el.href})`,
           );
           await page.evaluate(
             (selector) => {
@@ -804,7 +793,6 @@ export class TaskProcessorService {
       pauseChance: 0.2,
       pauseDuration: { min: 500, max: 1000 },
     };
-
 
     switch (fieldType) {
       case 'email':
@@ -1019,12 +1007,7 @@ export class TaskProcessorService {
     await new Promise((resolve) => setTimeout(resolve, totalPause));
   }
 
-  private async fillFormWithData(
-    page: Page,
-    leadData: LeadData,
-    humanize = true,
-    taskId?: string,
-  ): Promise<void> {
+  private async fillFormWithData(page: Page, leadData: LeadData, taskId?: string): Promise<void> {
     const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
     this.logger.info(`${taskPrefix} Filling form with lead data using AI analysis...`);
     this.logger.info(`${taskPrefix} Available lead data: ${JSON.stringify(leadData)}`);
@@ -1035,45 +1018,41 @@ export class TaskProcessorService {
     }
 
     try {
-      if (humanize) {
-        const prePause = 1000 + Math.random() * 3000;
-        this.logger.info(
-          `${taskPrefix} (Humanize) Pause before filling form: ${prePause.toFixed(0)}ms`,
-        );
-        await new Promise((resolve) => setTimeout(resolve, prePause));
-        const randomClicks = 1 + Math.floor(Math.random() * 2);
-        for (let i = 0; i < randomClicks; i++) {
-          await page.evaluate(() => {
-            const all = Array.from(document.querySelectorAll('div, p, span, section, article'));
-            const candidates = all.filter((el) => {
-              const style = window.getComputedStyle(el);
-              return (
-                (el as HTMLElement).offsetParent !== null &&
-                style.display !== 'none' &&
-                style.visibility !== 'hidden' &&
-                style.opacity !== '0' &&
-                el.clientHeight > 10 &&
-                el.clientWidth > 10
-              );
-            });
-            if (candidates.length > 0) {
-              const el = candidates[Math.floor(Math.random() * candidates.length)] as HTMLElement;
-              const rect = el.getBoundingClientRect();
-              (window as any).__lastRandomClick = {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-              };
-              el.click();
-            }
-          });
-          if (page.mouse && page.evaluate) {
-            const pos = await page.evaluate(
-              () => (window as any).__lastRandomClick || { x: 100, y: 100 },
+      const prePause = 1000 + Math.random() * 3000;
+      this.logger.info(`${taskPrefix} Pause before filling form: ${prePause.toFixed(0)}ms`);
+      await new Promise((resolve) => setTimeout(resolve, prePause));
+      const randomClicks = 1 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < randomClicks; i++) {
+        await page.evaluate(() => {
+          const all = Array.from(document.querySelectorAll('div, p, span, section, article'));
+          const candidates = all.filter((el) => {
+            const style = window.getComputedStyle(el);
+            return (
+              (el as HTMLElement).offsetParent !== null &&
+              style.display !== 'none' &&
+              style.visibility !== 'hidden' &&
+              style.opacity !== '0' &&
+              el.clientHeight > 10 &&
+              el.clientWidth > 10
             );
-            await page.mouse.move(pos.x, pos.y, { steps: 10 });
+          });
+          if (candidates.length > 0) {
+            const el = candidates[Math.floor(Math.random() * candidates.length)] as HTMLElement;
+            const rect = el.getBoundingClientRect();
+            (window as any).__lastRandomClick = {
+              x: rect.left + rect.width / 2,
+              y: rect.top + rect.height / 2,
+            };
+            el.click();
           }
-          await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 600));
+        });
+        if (page.mouse && page.evaluate) {
+          const pos = await page.evaluate(
+            () => (window as any).__lastRandomClick || { x: 100, y: 100 },
+          );
+          await page.mouse.move(pos.x, pos.y, { steps: 10 });
         }
+        await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 600));
       }
 
       await page.evaluate(() => {
@@ -1172,15 +1151,11 @@ export class TaskProcessorService {
           }
           await new Promise((resolve) => setTimeout(resolve, 500 + Math.random() * 500));
 
-          if (humanize) {
-            await this.simulateMouseMovement(page, field.selector, taskId);
+          await this.simulateMouseMovement(page, field.selector, taskId);
 
-            if (Math.random() < 0.2) {
-              this.logger.debug(
-                `${taskPrefix} (Humanize) Delaying focus on field: ${field.selector}`,
-              );
-              await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 800));
-            }
+          if (Math.random() < 0.2) {
+            this.logger.debug(`${taskPrefix} Delaying focus on field: ${field.selector}`);
+            await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 800));
           }
 
           await this.fillFieldByType(page, field, value, taskId);
