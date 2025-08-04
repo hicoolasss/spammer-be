@@ -74,12 +74,7 @@ export class AgendaService implements OnModuleInit {
   private async resetAllTaskLocks(): Promise<void> {
     try {
       const result = await this.taskModel.updateMany({ isRunning: true }, { isRunning: false });
-
-      if (result.modifiedCount > 0) {
-        this.logger.info(`Reset ${result.modifiedCount} task locks on server startup`);
-      } else {
-        this.logger.info('No task locks found to reset');
-      }
+      this.logTaskLockReset(result.modifiedCount);
     } catch (error) {
       this.logger.error('Failed to reset task locks:', error);
     }
@@ -91,9 +86,9 @@ export class AgendaService implements OnModuleInit {
       const lockedJobs = await agenda.jobs({
         name: 'runTask',
         lastRunAt: { $lt: fiveMinutesAgo },
-        lastFinishedAt: { $exists: false }
+        lastFinishedAt: { $exists: false },
       });
-      
+
       if (lockedJobs.length > 0) {
         await agenda.cancel({ name: 'runTask', lastRunAt: { $lt: fiveMinutesAgo } });
         this.logger.info(`Reset ${lockedJobs.length} locked agenda jobs on startup`);
@@ -137,7 +132,7 @@ export class AgendaService implements OnModuleInit {
     const lastRun = task.lastRunAt ? new Date(task.lastRunAt) : null;
     let nextRun: Date;
     if (lastRun) {
-      nextRun = new Date(lastRun.getTime() + (task.intervalMinutes || 1) * 60 * 1000);
+      nextRun = new Date(lastRun.getTime() + (task.intervalMinutes || 1) * 60 * 1_000);
     } else {
       nextRun = timeFrom;
     }
@@ -150,9 +145,9 @@ export class AgendaService implements OnModuleInit {
       tomorrow.setHours(fromHour, fromMin, 0, 0);
       return tomorrow;
     }
-    
+
     if (nextRun <= now) {
-      const soon = new Date(now.getTime() + 1 * 60 * 1000);
+      const soon = new Date(now.getTime() + 1 * 60 * 1_000);
       if (soon >= timeFrom && soon <= timeTo) return soon;
       const tomorrow = new Date(now);
       tomorrow.setDate(now.getDate() + 1);
@@ -164,40 +159,48 @@ export class AgendaService implements OnModuleInit {
 
   private async cleanupOldJobs(): Promise<void> {
     try {
-      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1_000);
+
       const failedJobs = await agenda.jobs({
         name: 'runTask',
         lastFinishedAt: { $lt: oneDayAgo },
-        failedAt: { $exists: true }
+        failedAt: { $exists: true },
       });
-      
+
       if (failedJobs.length > 0) {
         await agenda.cancel({
           name: 'runTask',
           lastFinishedAt: { $lt: oneDayAgo },
-          failedAt: { $exists: true }
+          failedAt: { $exists: true },
         });
         this.logger.info(`Cleaned up ${failedJobs.length} old failed jobs`);
       }
-      
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1_000);
       const completedJobs = await agenda.jobs({
         name: 'runTask',
         lastFinishedAt: { $lt: sevenDaysAgo },
-        failedAt: { $exists: false }
+        failedAt: { $exists: false },
       });
-      
+
       if (completedJobs.length > 0) {
         await agenda.cancel({
           name: 'runTask',
           lastFinishedAt: { $lt: sevenDaysAgo },
-          failedAt: { $exists: false }
+          failedAt: { $exists: false },
         });
         this.logger.info(`Cleaned up ${completedJobs.length} old completed jobs`);
       }
     } catch (error) {
       this.logger.error('Failed to cleanup old jobs:', error);
+    }
+  }
+
+  private logTaskLockReset(modifiedCount: number): void {
+    if (modifiedCount > 0) {
+      this.logger.info(`Reset ${modifiedCount} task locks on server startup`);
+    } else {
+      this.logger.info('No task locks found to reset');
     }
   }
 }

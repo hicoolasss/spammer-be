@@ -38,9 +38,9 @@ import { PuppeteerModule } from './puppeteer/puppeteer.module';
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         uri: configService.get<string>('MONGO_URL'),
-        connectTimeoutMS: 10000,
-        socketTimeoutMS: 45000,
-        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 10_000,
+        socketTimeoutMS: 45_000,
+        serverSelectionTimeoutMS: 5_000,
         retryWrites: true,
       }),
       inject: [ConfigService],

@@ -139,7 +139,6 @@ export class TaskProcessorService {
         this.logger.error(`[TASK_${taskId}] Profile with ID ${profileId} not found`);
         return;
       }
-      this.logger.debug(`[TASK_${taskId}] Loaded profile: ${JSON.stringify(profile)}`);
 
       const { leadKey, fbclidKey, userAgentKey } = profile;
       const leadData = await this.redisService.getLeadData(leadKey);
@@ -153,12 +152,8 @@ export class TaskProcessorService {
         finalUrl = finalUrl + separator + 'fbclid=' + fbclid;
       }
 
-      this.logger.debug(`[TASK_${taskId}] Final URL: ${finalUrl}`);
-      this.logger.debug(`[TASK_${taskId}] User agent: ${userAgent}`);
-      this.logger.debug(`[TASK_${taskId}] Geo: ${geo}`);
       this.logger.info(`[TASK_${taskId}] Processing lead: ${JSON.stringify(leadData)}`);
-      this.logger.info(`[TASK_${taskId}] Using userAgent: ${userAgent}, fbclid: ${fbclid}`);
-      const TIMEOUT_MS = 11 * 60 * 1000;
+      const TIMEOUT_MS = 11 * 60 * 1_000;
       this.logger.debug(
         `[TASK_${taskId}] Calling runPuppeteerTask with geo=${geo}, userAgent=${userAgent}, url=${finalUrl}`,
       );
@@ -186,15 +181,12 @@ export class TaskProcessorService {
     finalRedirectUrl: string | null,
   ): Promise<void> {
     try {
-      this.logger.debug(`[TASK_${taskId}] Starting statistics update...`);
-
       const task = await this.taskModel.findById(taskId).exec();
 
       if (!task) {
         this.logger.error(`[TASK_${taskId}] Task not found for statistics update`);
         return;
       }
-      this.logger.debug(`[TASK_${taskId}] Current result: ${JSON.stringify(task.result)}`);
 
       if (!task.result) {
         this.logger.warn(
@@ -206,13 +198,8 @@ export class TaskProcessorService {
       const currentTotal = task.result?.total || 0;
       task.result.total = currentTotal + 1;
 
-      this.logger.debug(
-        `[TASK_${taskId}] Updated total from ${currentTotal} to ${task.result.total}`,
-      );
-
       if (!task.result?.success) {
         task.result.success = {};
-        this.logger.debug(`[TASK_${taskId}] Initialized empty success object`);
       }
 
       if (finalRedirectUrl && finalRedirectUrl !== task.url) {
@@ -238,9 +225,6 @@ export class TaskProcessorService {
         this.logger.info(`[TASK_${taskId}] Successful redirect to: ${finalRedirectUrl}`);
       }
 
-      this.logger.debug(
-        `[TASK_${taskId}] About to save task with result: ${JSON.stringify(task.result)}`,
-      );
       await task.save();
 
       this.logger.info(
@@ -267,7 +251,7 @@ export class TaskProcessorService {
     do {
       await currentPage.goto(effectiveUrl, {
         waitUntil: 'domcontentloaded',
-        timeout: 60000,
+        timeout: 60_000,
       });
       const currentUrl = currentPage.url();
       visitedUrls.push(currentUrl);
@@ -339,7 +323,7 @@ export class TaskProcessorService {
 
       this.logger.info(`[TASK_${taskId}] Navigating to: ${finalUrl}`);
 
-      const { page: resolvedPage, effectiveUrl } = await this.getFinalEffectivePage(
+      const { page: resolvedPage } = await this.getFinalEffectivePage(
         page.browser(),
         page,
         finalUrl,
@@ -358,7 +342,7 @@ export class TaskProcessorService {
 
         finalPage = await this.tryClickRedirectLink(finalPage, taskId);
       }
-      await new Promise((resolve) => setTimeout(resolve, 30000));
+      await this.sleep(10_000);
 
       await this.safeExecute(finalPage, () => this.simulateScrolling(finalPage, taskId, 'down'));
       await this.safeExecute(finalPage, () => this.simulateRandomClicks(finalPage, taskId));
@@ -370,55 +354,6 @@ export class TaskProcessorService {
       afterSubmitUrl = await this.safeExecute(finalPage, () =>
         this.fillFormWithData(finalPage, leadData, taskId, task.isQuiz),
       );
-
-      if (effectiveUrl.includes('facebook.com/flx/warn')) {
-        try {
-          await finalPage.waitForSelector('a[role="button"], button[role="button"]', {
-            timeout: 5000,
-          });
-          const clicked = await finalPage.evaluate(() => {
-            const buttons = Array.from(
-              document.querySelectorAll('a[role="button"], button[role="button"]'),
-            );
-            const target = buttons.find(
-              (btn) =>
-                btn.textContent &&
-                (btn.textContent.toLowerCase().includes('перейти за посиланням') ||
-                  btn.textContent.toLowerCase().includes('follow link')),
-            );
-            if (target) {
-              (window as any).__clickedLink = {
-                href: target.getAttribute('href'),
-                text: target.textContent?.trim(),
-              };
-              (target as HTMLElement).click();
-              return true;
-            }
-            if (buttons.length > 1) {
-              (buttons[1] as HTMLElement).click();
-              return true;
-            }
-            return false;
-          });
-          if (clicked) {
-            await finalPage
-              .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 })
-              .catch(() => {});
-            await new Promise((resolve) => setTimeout(resolve, 5000));
-            this.logger.info(
-              `[TASK_${taskId}] Clicked Facebook warning button and waited for navigation.`,
-            );
-          } else {
-            this.logger.warn(
-              `[TASK_${taskId}] Could not find "Follow link" button on Facebook warning.`,
-            );
-          }
-        } catch (e) {
-          this.logger.warn(
-            `[TASK_${taskId}] Could not click Facebook warning button or wait for navigation: ${e.message}`,
-          );
-        }
-      }
 
       if (!finalPage.isClosed()) {
         finalRedirectUrl = finalPage.url();
@@ -439,15 +374,16 @@ export class TaskProcessorService {
 
   private async tryClickRedirectLink(page: Page, taskId: string) {
     const taskPrefix = `[TASK_${taskId}]`;
-    this.logger.info(`[TASK_${taskId}] scroll & move for 60s…`);
+    this.logger.info(`[TASK_${taskId}] scroll & move for 25s…`);
     const start = Date.now();
-    while (Date.now() - start < 60_000) {
+
+    while (Date.now() - start < 25_000) {
       await this.safeExecute(page, () => this.simulateScrolling(page, taskId, 'down'));
-      await new Promise((resolve) => setTimeout(resolve, 500 + Math.random() * 500));
+      await this.sleep(500 + Math.random() * 500);
       await this.safeExecute(page, () => this.simulateRandomClicks(page, taskId));
-      await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 700));
+      await this.sleep(300 + Math.random() * 700);
       await this.safeExecute(page, () => this.simulateScrolling(page, taskId, 'up'));
-      await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 2000));
+      await this.sleep(1_000 + Math.random() * 2_000);
     }
 
     try {
@@ -461,7 +397,6 @@ export class TaskProcessorService {
           text: a.textContent?.trim() || '',
         })),
       );
-      this.logger.info(`${taskPrefix} [tryClickRedirectLink] Found ${debugLinks.length} links`);
 
       const counts: Record<string, number> = {};
       debugLinks.forEach((l) => {
@@ -476,11 +411,7 @@ export class TaskProcessorService {
         return page;
       }
 
-      this.logger.info(
-        `${taskPrefix} [tryClickRedirectLink] Redirecting to most frequent href: ${targetHref} (count=${counts[targetHref]})`,
-      );
-      await page.goto(targetHref, { waitUntil: 'domcontentloaded', timeout: 10000 });
-      this.logger.info(`${taskPrefix} [tryClickRedirectLink] URL now: ${page.url()}`);
+      await page.goto(targetHref, { waitUntil: 'domcontentloaded', timeout: 10_000 });
     } catch (e) {
       this.logger.warn(`${taskPrefix} Error in tryClickRedirectLink: ${e.message}`);
     }
@@ -547,7 +478,7 @@ export class TaskProcessorService {
           }, scrollAmount);
 
           const pauseTime = 500 + Math.random() * 800;
-          await new Promise((resolve) => setTimeout(resolve, pauseTime));
+          await this.sleep(pauseTime);
 
           if (Math.random() < 0.15) {
             const backScroll = Math.floor(Math.random() * 100) + 50;
@@ -557,7 +488,7 @@ export class TaskProcessorService {
                 behavior: 'smooth',
               });
             }, backScroll);
-            await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 500));
+            await this.sleep(300 + Math.random() * 500);
           }
         }
       } else {
@@ -567,7 +498,7 @@ export class TaskProcessorService {
             behavior: 'smooth',
           });
         });
-        await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
+        await this.sleep(1_000 + Math.random() * 1_000);
       }
     } catch (error) {
       if (error.message.includes('Execution context was destroyed')) {
@@ -616,15 +547,11 @@ export class TaskProcessorService {
           }));
       });
 
-      this.logger.info(`${taskPrefix} Found ${clickableElements.length} clickable elements`);
-
       if (clickableElements.length > 0) {
         const randomClicks = Math.floor(Math.random() * 2) + 1;
         for (let i = 0; i < randomClicks; i++) {
           const el = clickableElements[Math.floor(Math.random() * clickableElements.length)];
-          this.logger.info(
-            `${taskPrefix} Randomly clicking on ${el.tagName}: "${el.text}" (${el.href})`,
-          );
+
           await page.evaluate(
             (selector) => {
               const el = document.querySelector(selector) as HTMLElement;
@@ -632,7 +559,7 @@ export class TaskProcessorService {
             },
             `${el.tagName}${el.href ? `[href="${el.href}"]` : ''}`,
           );
-          await new Promise((resolve) => setTimeout(resolve, 800 + Math.random() * 1200));
+          await this.sleep(800 + Math.random() * 1_200);
         }
       }
 
@@ -653,10 +580,6 @@ export class TaskProcessorService {
         if (page.isClosed()) break;
 
         try {
-          this.logger.info(
-            `${taskPrefix} Clicking on ${element.tagName}: "${element.text}" (${element.href})`,
-          );
-
           await page.evaluate(
             (selector) => {
               const el = document.querySelector(selector) as HTMLElement;
@@ -667,14 +590,17 @@ export class TaskProcessorService {
             `${element.tagName}${element.href ? `[href="${element.href}"]` : ''}`,
           );
 
-          await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1500));
+          await this.sleep(1_000 + Math.random() * 1_500);
+          // ...existing code...
 
           if (element.href && !element.href.startsWith('#')) {
-            await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 5000 }).catch(() => {
-              this.logger.warn(`${taskPrefix} Page navigation timeout`);
-            });
+            await page
+              .waitForNavigation({ waitUntil: 'networkidle2', timeout: 5_000 })
+              .catch(() => {
+                this.logger.warn(`${taskPrefix} Page navigation timeout`);
+              });
 
-            await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 2000));
+            await this.sleep(1_000 + Math.random() * 2_000);
           }
         } catch (error) {
           this.logger.warn(`${taskPrefix} Failed to click element: ${error.message}`);
@@ -720,18 +646,13 @@ export class TaskProcessorService {
       });
 
       if (formInfo.length === 0) {
-        this.logger.warn(`${taskPrefix} ❌ No forms found on the page`);
+        this.logger.error(`${taskPrefix} ❌ No forms found on the page`);
         throw new Error(
           `${taskPrefix} No forms found on the page, cannot proceed with form filling`,
         );
       }
 
-      this.logger.info(`${taskPrefix} 📋 Found ${formInfo.length} form(s) on the page:`);
-      formInfo.forEach((form) => {
-        this.logger.info(
-          `${taskPrefix}   Form #${form.index}: ${form.visibleInputs} visible inputs, action: ${form.action}`,
-        );
-      });
+      this.logger.info(`${taskPrefix} 📋 Found ${formInfo.length} form(s) on the page`);
 
       const bestForm = formInfo.find((form) => form.visibleInputs > 0) || formInfo[0];
 
@@ -750,15 +671,11 @@ export class TaskProcessorService {
             setTimeout(() => {
               form.style.border = '';
               form.style.boxShadow = '';
-            }, 3000);
+            }, 3_000);
           }
         }, bestForm.index);
 
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-
-        this.logger.info(
-          `${taskPrefix} ✅ Form search completed - AI will analyze forms during filling`,
-        );
+        await this.sleep(2_000);
       }
     } catch (error) {
       if (
@@ -772,30 +689,13 @@ export class TaskProcessorService {
     }
   }
 
-  private async fillFieldByType(
-    page: Page,
-    field: FormField,
-    value: string,
-    taskId?: string,
-  ): Promise<void> {
-    const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
-
-    const typingConfig = this.getTypingConfig(field.type);
-
-    this.logger.debug(
-      `${taskPrefix} ${typingConfig.icon} Filling ${field.type} field: ${field.selector}`,
-    );
-
-    await this.fillFieldWithTyping(page, field.selector, value, typingConfig, taskId);
-  }
-
   private getTypingConfig(fieldType: string) {
     const baseConfig = {
-      baseDelay: 1000,
+      baseDelay: 1_000,
       typingSpeed: 15,
       typoChance: 0.2,
       pauseChance: 0.2,
-      pauseDuration: { min: 500, max: 1000 },
+      pauseDuration: { min: 500, max: 1_000 },
     };
 
     switch (fieldType) {
@@ -806,7 +706,7 @@ export class TaskProcessorService {
           baseDelay: 800,
           typingSpeed: 14,
           pauseChance: 0.55,
-          pauseDuration: { min: 800, max: 1500 },
+          pauseDuration: { min: 800, max: 1_500 },
         };
 
       case 'phone':
@@ -817,7 +717,7 @@ export class TaskProcessorService {
           typingSpeed: 23,
           pauseChance: 0.5,
           typoChance: 0,
-          pauseDuration: { min: 800, max: 1500 },
+          pauseDuration: { min: 800, max: 1_500 },
         };
 
       case 'name':
@@ -827,24 +727,24 @@ export class TaskProcessorService {
           baseDelay: 1500,
           typingSpeed: 16,
           pauseChance: 0.35,
-          pauseDuration: { min: 800, max: 1500 },
+          pauseDuration: { min: 800, max: 1_500 },
         };
 
       case 'surname':
         return {
           ...baseConfig,
           icon: '👤',
-          baseDelay: 1500,
+          baseDelay: 1_500,
           typingSpeed: 18,
           pauseChance: 0.45,
-          pauseDuration: { min: 800, max: 1500 },
+          pauseDuration: { min: 800, max: 1_500 },
         };
 
       default:
         return {
           ...baseConfig,
           icon: '❓',
-          baseDelay: 1000,
+          baseDelay: 1_000,
           typingSpeed: 20,
         };
     }
@@ -874,7 +774,7 @@ export class TaskProcessorService {
       await this.addCharacter(page, selector, char);
 
       const totalDelay = config.baseDelay + Math.random() * config.typingSpeed;
-      await new Promise((resolve) => setTimeout(resolve, totalDelay));
+      await this.sleep(totalDelay);
 
       if (Math.random() < config.typoChance && i < value.length - 1) {
         await this.simulateTypo(page, selector, taskPrefix);
@@ -884,8 +784,7 @@ export class TaskProcessorService {
         const pauseDelay =
           config.pauseDuration.min +
           Math.random() * (config.pauseDuration.max - config.pauseDuration.min);
-        this.logger.debug(`${taskPrefix} ⏸️ Typing pause: ${pauseDelay.toFixed(0)}ms`);
-        await new Promise((resolve) => setTimeout(resolve, pauseDelay));
+        await this.sleep(pauseDelay);
       }
     }
   }
@@ -902,7 +801,7 @@ export class TaskProcessorService {
       }
     }, selector);
 
-    await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
+    await this.sleep(200 + Math.random() * 300);
   }
 
   private async addCharacter(page: Page, selector: string, char: string): Promise<void> {
@@ -922,11 +821,10 @@ export class TaskProcessorService {
 
   private async simulateTypo(page: Page, selector: string, taskPrefix: string): Promise<void> {
     const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26));
-    this.logger.debug(`${taskPrefix} ⌨️ Made typo: "${typoChar}", correcting...`);
 
     await this.addCharacter(page, selector, typoChar);
 
-    await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
+    await this.sleep(200 + Math.random() * 300);
 
     await page.evaluate((selector) => {
       const element = document.querySelector(selector) as HTMLInputElement;
@@ -937,7 +835,7 @@ export class TaskProcessorService {
       }
     }, selector);
 
-    await new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 200));
+    await this.sleep(150 + Math.random() * 200);
   }
 
   private async simulateMouseMovement(
@@ -961,9 +859,7 @@ export class TaskProcessorService {
         const steps = 10 + Math.floor(Math.random() * 10);
         await page.mouse.move(rect.x, rect.y, { steps });
 
-        await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 300));
-
-        this.logger.debug(`${taskPrefix} 🖱️ Mouse moved to field: ${selector}`);
+        await this.sleep(100 + Math.random() * 300);
       }
     } catch (error) {
       this.logger.debug(`${taskPrefix} Failed to move mouse to field: ${error.message}`);
@@ -971,14 +867,12 @@ export class TaskProcessorService {
   }
 
   private async simulateFieldTransition(page: Page, taskId?: string): Promise<void> {
-    const taskPrefix = `[TASK_${taskId}]`;
     const basePause = 800 + Math.random() * 1200;
-    const readingPause = Math.random() < 0.2 ? 500 + Math.random() * 1000 : 0;
+    const readingPause = Math.random() < 0.2 ? 500 + Math.random() * 1_000 : 0;
     const quickPause = Math.random() < 0.1 ? Math.random() * 300 : 0;
     const totalPause = basePause + readingPause + quickPause;
 
     if (Math.random() < 0.1) {
-      this.logger.debug(`${taskPrefix} 🎯 Random click outside form`);
       await page.evaluate(() => {
         const all = Array.from(document.querySelectorAll('div, p, span, section, article'));
         const candidates = all.filter((el) => {
@@ -1005,10 +899,10 @@ export class TaskProcessorService {
         await page.mouse.move(pos.x, pos.y, { steps: 10 });
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 600));
+      await this.sleep(400 + Math.random() * 600);
     }
 
-    await new Promise((resolve) => setTimeout(resolve, totalPause));
+    await this.sleep(totalPause);
   }
 
   private async fillFormWithData(
@@ -1027,9 +921,9 @@ export class TaskProcessorService {
     }
 
     try {
-      const prePause = 1000 + Math.random() * 3000;
+      const prePause = Math.random() * 3_000;
       this.logger.info(`${taskPrefix} Pause before filling form: ${prePause.toFixed(0)}ms`);
-      await new Promise((resolve) => setTimeout(resolve, prePause));
+      await this.sleep(prePause);
       const randomClicks = 1 + Math.floor(Math.random() * 2);
       for (let i = 0; i < randomClicks; i++) {
         await page.evaluate(() => {
@@ -1061,7 +955,7 @@ export class TaskProcessorService {
           );
           await page.mouse.move(pos.x, pos.y, { steps: 10 });
         }
-        await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 600));
+        await this.sleep(400 + Math.random() * 600);
       }
 
       await page.evaluate(() => {
@@ -1071,7 +965,7 @@ export class TaskProcessorService {
         }
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
+      await this.sleep(1_000 + Math.random() * 1_000);
 
       const beforeSubmitUrl = page.url();
 
@@ -1110,14 +1004,12 @@ export class TaskProcessorService {
             );
           }
           analysis = await this.aiService.analyzeForms(formsHtml);
-          this.logger.info(`${taskPrefix} AI analysis successful`);
         } catch (aiError) {
           this.logger.warn(
             `${taskPrefix} AI analysis failed: ${aiError.message}, trying fallback method`,
           );
           try {
             analysis = await this.aiService.analyzeFormsFallback(page);
-            this.logger.info(`${taskPrefix} Fallback analysis successful`);
           } catch (fallbackError) {
             this.logger.error(
               `${taskPrefix} Both AI and fallback analysis failed: ${fallbackError.message}`,
@@ -1130,17 +1022,11 @@ export class TaskProcessorService {
           this.logger.warn(`${taskPrefix} Could not identify suitable form fields`);
           return;
         }
+
         this.logger.info(
           `${taskPrefix} Selected form #${analysis.bestForm.formIndex} with ${analysis.bestForm.fields.length} fields`,
         );
-        this.logger.info(
-          `${taskPrefix} Confidence: ${analysis.bestForm.confidence}, reason: ${analysis.bestForm.reason}`,
-        );
-        analysis.bestForm.fields.forEach((field, index) => {
-          this.logger.info(
-            `${taskPrefix} Field ${index + 1}: ${field.type} (${field.selector}) - confidence: ${field.confidence}`,
-          );
-        });
+
         await page.evaluate((formIndex) => {
           const forms = Array.from(document.querySelectorAll('form'));
           const form = forms[formIndex];
@@ -1148,7 +1034,7 @@ export class TaskProcessorService {
             form.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
         }, analysis.bestForm.formIndex);
-        await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1000));
+        await this.sleep(1_500 + Math.random() * 1_000);
 
         for (const field of analysis.bestForm.fields) {
           if (page.isClosed()) {
@@ -1191,16 +1077,17 @@ export class TaskProcessorService {
               this.logger.warn(`${taskPrefix} Field not found: ${field.selector}, skipping`);
               continue;
             }
-            await new Promise((resolve) => setTimeout(resolve, 500 + Math.random() * 500));
+            await this.sleep(500 + Math.random() * 500);
 
             await this.simulateMouseMovement(page, field.selector, taskId);
 
             if (Math.random() < 0.2) {
-              this.logger.debug(`${taskPrefix} Delaying focus on field: ${field.selector}`);
-              await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 800));
+              await this.sleep(600 + Math.random() * 800);
             }
 
-            await this.fillFieldByType(page, field, value, taskId);
+            const typingConfig = this.getTypingConfig(field.type);
+            await this.fillFieldWithTyping(page, field.selector, value, typingConfig, taskId);
+
             this.logger.info(
               `${taskPrefix} ✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
             );
@@ -1213,15 +1100,12 @@ export class TaskProcessorService {
           }
         }
 
-        this.logger.info(`${taskPrefix} All fields filled, preparing to submit form...`);
-        await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
-        this.logger.info(`${taskPrefix} URL before form submission: ${beforeSubmitUrl}`);
-        
+        this.logger.info(
+          `${taskPrefix} All fields filled; URL before form submission: ${beforeSubmitUrl}`,
+        );
+        await this.sleep(1_000 + Math.random() * 1_000);
+
         if (analysis.bestForm.checkboxes?.length) {
-          this.logger.info(
-            `${taskPrefix} Filling ${analysis.bestForm.checkboxes.length} checkboxes…`,
-          );
-          
           for (const cb of analysis.bestForm.checkboxes) {
             try {
               const isChecked = await page.evaluate((sel) => {
@@ -1231,7 +1115,7 @@ export class TaskProcessorService {
 
               if (!isChecked) {
                 await this.simulateMouseMovement(page, cb.selector, taskId);
-                await new Promise((res) => setTimeout(res, 300 + Math.random() * 700));
+                await this.sleep(300 + Math.random() * 700);
                 await page.evaluate((sel) => {
                   const el = document.querySelector(sel) as HTMLInputElement;
                   el?.click();
@@ -1243,9 +1127,7 @@ export class TaskProcessorService {
                     ` — confidence: ${cb.confidence}`,
                 );
 
-                await new Promise((res) => setTimeout(res, 400 + Math.random() * 600));
-              } else {
-                this.logger.info(`${taskPrefix} ⏩ Checkbox already checked: ${cb.selector}`);
+                await this.sleep(400 + Math.random() * 600);
               }
             } catch (err) {
               this.logger.warn(
@@ -1282,7 +1164,7 @@ export class TaskProcessorService {
               () => {
                 (submitButton as HTMLElement).click();
               },
-              1000 + Math.random() * 1000,
+              1_000 + Math.random() * 1_000,
             );
             return 'clicked_submit_button';
           } else {
@@ -1290,7 +1172,7 @@ export class TaskProcessorService {
               () => {
                 form.submit();
               },
-              1000 + Math.random() * 1000,
+              1_000 + Math.random() * 1_000,
             );
             return 'called_form_submit';
           }
@@ -1298,11 +1180,7 @@ export class TaskProcessorService {
         this.logger.info(`${taskPrefix} 🎉 Form submit result: ${submitResult}`);
       }
 
-      this.logger.info(
-        `${taskPrefix} Waiting 90 seconds after form submission for processing and redirect...`,
-      );
-
-      await new Promise((resolve) => setTimeout(resolve, 90000));
+      await this.sleep(45_000);
 
       await this.takeScreenshot(page, taskId, 'thank-you');
 
@@ -1310,27 +1188,20 @@ export class TaskProcessorService {
         await page
           .waitForNavigation({
             waitUntil: 'domcontentloaded',
-            timeout: 10000,
+            timeout: 10_000,
           })
           .catch(() => {
             this.logger.warn(`${taskPrefix} Navigation timeout after form submission`);
           });
         const afterSubmitUrl = page.url();
-        this.logger.info(`${taskPrefix} URL after form submission: ${afterSubmitUrl}`);
-        if (afterSubmitUrl !== beforeSubmitUrl) {
-          this.logger.info(
-            `${taskPrefix} Form submission successful! Redirected to: ${afterSubmitUrl}`,
-          );
-        } else {
-          this.logger.info(`${taskPrefix} Form submitted but no navigation detected`);
-        }
+
         return afterSubmitUrl;
       } catch (error) {
         this.logger.warn(
           `${taskPrefix} Error waiting for navigation after form submission: ${error.message}`,
         );
       }
-      this.logger.info(`${taskPrefix} AI-powered form filling completed successfully!`);
+
       return page.url();
     } catch (error) {
       if (
@@ -1343,5 +1214,9 @@ export class TaskProcessorService {
       this.logger.error(`${taskPrefix} Error filling form with AI: ${error.message}`, error);
       return null;
     }
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

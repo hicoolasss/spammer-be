@@ -109,10 +109,6 @@ Return JSON in format:
 
       const result: FormAnalysisResult = JSON.parse(jsonMatch[0]);
 
-      this.logger.info(
-        `Form analysis completed. Best form: ${result.bestForm.formIndex}, confidence: ${result.bestForm.confidence}`,
-      );
-
       return result;
     } catch (error) {
       this.logger.error(`Error analyzing forms: ${error.message}`, error);
@@ -140,8 +136,8 @@ Return JSON in format:
             });
 
             const formHtml =
-              form.outerHTML.length > 5000
-                ? form.outerHTML.substring(0, 5000) + '... (truncated)'
+              form.outerHTML.length > 5_000
+                ? form.outerHTML.substring(0, 5_000) + '... (truncated)'
                 : form.outerHTML;
 
             return `
@@ -280,10 +276,6 @@ ${visibleInputs
         throw new Error('No suitable form found for fallback analysis');
       }
 
-      this.logger.info(
-        `Fallback form analysis completed. Form: ${formData.formIndex}, fields: ${formData.fields.length}`,
-      );
-
       return {
         bestForm: formData,
         allForms: [formData],
@@ -382,9 +374,6 @@ Return ONLY the JavaScript code that can be executed directly in browser console
         content.match(/```\s*([\s\S]*?)\s*```/) || [null, content];
 
       const jsCode = jsCodeMatch[1] || content;
-
-      this.logger.info(`Form fill script generated successfully`);
-
       return jsCode;
     } catch (error) {
       this.logger.error(`Error generating form fill script: ${error.message}`, error);
