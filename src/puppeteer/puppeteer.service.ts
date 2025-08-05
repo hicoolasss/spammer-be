@@ -74,31 +74,22 @@ export class PuppeteerService implements OnModuleDestroy {
   }
 
   async acquirePage(creativeId: string, proxyGeo: CountryCode, userAgent: string): Promise<Page> {
-    this.logger.debug(
-      `[DEBUG] acquirePage called with creativeId=${creativeId}, proxyGeo=${proxyGeo}, userAgent=${userAgent}`,
-    );
     const localeSettings = LOCALE_SETTINGS[proxyGeo] || LOCALE_SETTINGS.ALL;
     const { locale, timeZone } = localeSettings;
     const MAX_BROWSERS = Number(process.env.MAX_BROWSERS_PER_GEO) || 5;
     const MAX_TABS = Number(process.env.MAX_TABS_PER_BROWSER) || 15;
     const pool = this.browserPool.get(proxyGeo) || [];
 
-    logAllGeoPoolsTable(this.browserPool);
-
     const getBrowserWithFreeSlot = () => pool.find((w) => w.pages.length < MAX_TABS);
     let wrapper = getBrowserWithFreeSlot();
     if (wrapper) {
-      this.logger.debug(
-        `[acquirePage] geo=${proxyGeo} | Открываю вкладку в браузер с ${wrapper.pages.length} вкладками`,
-      );
-
       const page = await this._openPage(wrapper, userAgent, locale, timeZone, creativeId, proxyGeo);
+      logAllGeoPoolsTable(this.browserPool);
       return page;
     }
 
     if (pool.length < MAX_BROWSERS) {
       if (!this.browserCreationLocks.has(proxyGeo)) {
-        this.logger.debug(`[acquirePage] geo=${proxyGeo} | Создаю новый браузер...`);
         const lockPromise = new Promise<void>((resolve) => {
           resolve();
         });
@@ -109,27 +100,18 @@ export class PuppeteerService implements OnModuleDestroy {
           newWrapper.pages.push(
             await this._openPage(newWrapper, userAgent, locale, timeZone, creativeId, proxyGeo),
           );
-          this.logger.debug(
-            `[acquirePage] geo=${proxyGeo} | Новый браузер создан, открываю вкладку`,
-          );
           this._drainGeoQueue(proxyGeo, this.browserPool.get(proxyGeo) || [], MAX_TABS);
+          logAllGeoPoolsTable(this.browserPool);
           return newWrapper.pages[0];
         } catch (err) {
           if (newWrapper) newWrapper.pages = [];
           throw err;
         }
       } else {
-        this.logger.debug(
-          `[acquirePage] geo=${proxyGeo} | Жду создания браузера другим потоком...`,
-        );
         await this.browserCreationLocks.get(proxyGeo);
         const updatedPool = this.browserPool.get(proxyGeo) || [];
         wrapper = updatedPool.find((w) => w.pages.length < MAX_TABS);
         if (wrapper) {
-          this.logger.debug(
-            `[acquirePage] geo=${proxyGeo} | После ожидания: открываю вкладку в браузер с ${wrapper.pages.length} вкладками`,
-          );
-
           const page = await this._openPage(
             wrapper,
             userAgent,
@@ -138,6 +120,7 @@ export class PuppeteerService implements OnModuleDestroy {
             creativeId,
             proxyGeo,
           );
+          logAllGeoPoolsTable(this.browserPool);
           return page;
         }
       }
@@ -145,9 +128,6 @@ export class PuppeteerService implements OnModuleDestroy {
 
     if (pool.length < MAX_BROWSERS) {
       if (!this.browserCreationLocks.has(proxyGeo)) {
-        this.logger.debug(
-          `[acquirePage] geo=${proxyGeo} | Все браузеры заполнены, но лимит не достигнут — создаю новый браузер для очередной задачи`,
-        );
         const lockPromise = new Promise<void>((resolve) => {
           resolve();
         });
@@ -158,27 +138,18 @@ export class PuppeteerService implements OnModuleDestroy {
           newWrapper.pages.push(
             await this._openPage(newWrapper, userAgent, locale, timeZone, creativeId, proxyGeo),
           );
-          this.logger.debug(
-            `[acquirePage] geo=${proxyGeo} | Новый браузер создан (по очереди), открываю вкладку`,
-          );
           this._drainGeoQueue(proxyGeo, this.browserPool.get(proxyGeo) || [], MAX_TABS);
+          logAllGeoPoolsTable(this.browserPool);
           return newWrapper.pages[0];
         } catch (err) {
           if (newWrapper) newWrapper.pages = [];
           throw err;
         }
       } else {
-        this.logger.debug(
-          `[acquirePage] geo=${proxyGeo} | Все браузеры заполнены, жду создания браузера другим потоком (по очереди)...`,
-        );
         await this.browserCreationLocks.get(proxyGeo);
         const updatedPool = this.browserPool.get(proxyGeo) || [];
         wrapper = updatedPool.find((w) => w.pages.length < MAX_TABS);
         if (wrapper) {
-          this.logger.debug(
-            `[acquirePage] geo=${proxyGeo} | После ожидания (по очереди): открываю вкладку в браузер с ${wrapper.pages.length} вкладками`,
-          );
-
           const page = await this._openPage(
             wrapper,
             userAgent,
@@ -187,13 +158,11 @@ export class PuppeteerService implements OnModuleDestroy {
             creativeId,
             proxyGeo,
           );
+          logAllGeoPoolsTable(this.browserPool);
           return page;
         }
       }
     }
-    this.logger.debug(
-      `[acquirePage] geo=${proxyGeo} | Все браузеры заполнены и лимит достигнут, ставлю задачу в очередь`,
-    );
     return new Promise<Page>((resolve, reject) => {
       if (!this.geoTaskQueues.has(proxyGeo)) {
         this.geoTaskQueues.set(proxyGeo, []);
@@ -218,9 +187,6 @@ export class PuppeteerService implements OnModuleDestroy {
     creativeId: string,
     proxyGeo: CountryCode,
   ): Promise<Page> {
-    this.logger.debug(
-      `[DEBUG] _openPage called with proxyGeo=${proxyGeo}, userAgent=${userAgent}, locale=${locale}, timeZone=${timeZone}`,
-    );
     const MAX_TABS = Number(process.env.MAX_TABS_PER_BROWSER) || 15;
     if (wrapper.pages.length >= MAX_TABS) {
       this.logger.error(
@@ -228,17 +194,10 @@ export class PuppeteerService implements OnModuleDestroy {
       );
       throw new Error('MAX_TABS limit reached for this browser');
     }
-    this.logger.debug(
-      `[_openPage] geo=${proxyGeo} | Открываю вкладку в браузер с ${wrapper.pages.length} вкладками`,
-    );
 
     const page = await wrapper.context.newPage();
     pageOpenTimes.set(page, Date.now());
     wrapper.pages.push(page);
-
-    this.logger.debug(
-      `[_openPage] geo=${proxyGeo} | Вкладка открыта, теперь браузер имеет ${wrapper.pages.length} вкладок`,
-    );
 
     try {
       await page.authenticate({
@@ -246,7 +205,7 @@ export class PuppeteerService implements OnModuleDestroy {
         password: `${process.env.PROXY_PASSWORD}_country-${proxyGeo}`,
       });
     } catch (e) {
-      this.logger.error(`[DEBUG] Error in page.authenticate: ${e.message}`);
+      this.logger.error(`Error in page.authenticate: ${e.message}`);
     }
 
     await page.setUserAgent(userAgent);
@@ -277,13 +236,12 @@ export class PuppeteerService implements OnModuleDestroy {
     page.on('request', async (req) => {
       return req.continue();
     });
-    page.on('error', (err) => this.logger.error(`[DEBUG] Page error [${proxyGeo}]: ${err}`));
+    page.on('error', (err) => this.logger.error(`Page error [${proxyGeo}]: ${err}`));
     page.on('pageerror', (err) => {
       if (err.message.includes('setCookie is not defined')) {
-        this.logger.debug(`[DEBUG] Ignoring setCookie error [${proxyGeo}]: ${err.message}`);
         return;
       }
-      this.logger.error(`[DEBUG] Runtime error [${proxyGeo}]: ${err}`);
+      this.logger.error(`Runtime error [${proxyGeo}]: ${err}`);
     });
 
     return page;
@@ -298,6 +256,7 @@ export class PuppeteerService implements OnModuleDestroy {
       if (idx === -1) continue;
 
       wrapper.pages.splice(idx, 1);
+      pageOpenTimes.delete(page);
 
       await page.setRequestInterception(false).catch(() => {});
       page.removeAllListeners('request');
@@ -313,9 +272,6 @@ export class PuppeteerService implements OnModuleDestroy {
         }
       }
 
-      this.logger.debug(
-        `[releasePage] geo=${geo} | Освобождён слот, browsers=${pool.length}, tabs=[${pool.map((w) => w.pages.length).join(',')}]`,
-      );
       logAllGeoPoolsTable(this.browserPool);
 
       const MAX_TABS = Number(process.env.MAX_TABS_PER_BROWSER) || 15;
