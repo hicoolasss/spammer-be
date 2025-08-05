@@ -87,7 +87,7 @@ export class PuppeteerService implements OnModuleDestroy {
     this.browserPool.clear();
   }
 
-  async acquirePage(creativeId: string, proxyGeo: CountryCode, userAgent: string): Promise<Page> {
+  async acquirePage(proxyGeo: CountryCode, userAgent: string): Promise<Page> {
     const localeSettings = LOCALE_SETTINGS[proxyGeo] || LOCALE_SETTINGS.ALL;
     const { locale, timeZone } = localeSettings;
     const pool = this.browserPool.get(proxyGeo) || [];
@@ -104,7 +104,7 @@ export class PuppeteerService implements OnModuleDestroy {
       this.logger.debug(
         `[acquirePage] geo=${proxyGeo} | Найден браузер с ${wrapper.pages.length} вкладками, добавляю вкладку`,
       );
-      const page = await this._openPage(wrapper, userAgent, locale, timeZone, creativeId, proxyGeo);
+      const page = await this._openPage(wrapper, userAgent, locale, timeZone, proxyGeo);
       logAllGeoPoolsTable(this.browserPool);
       return page;
     }
@@ -125,7 +125,7 @@ export class PuppeteerService implements OnModuleDestroy {
             `[acquirePage] geo=${proxyGeo} | Новый браузер создан, добавляю вкладку`,
           );
           newWrapper.pages.push(
-            await this._openPage(newWrapper, userAgent, locale, timeZone, creativeId, proxyGeo),
+            await this._openPage(newWrapper, userAgent, locale, timeZone, proxyGeo),
           );
           logAllGeoPoolsTable(this.browserPool);
           return newWrapper.pages[0];
@@ -144,14 +144,7 @@ export class PuppeteerService implements OnModuleDestroy {
           this.logger.debug(
             `[acquirePage] geo=${proxyGeo} | После ожидания найден браузер с ${wrapper.pages.length} вкладками`,
           );
-          const page = await this._openPage(
-            wrapper,
-            userAgent,
-            locale,
-            timeZone,
-            creativeId,
-            proxyGeo,
-          );
+          const page = await this._openPage(wrapper, userAgent, locale, timeZone, proxyGeo);
           logAllGeoPoolsTable(this.browserPool);
           return page;
         }
@@ -167,7 +160,7 @@ export class PuppeteerService implements OnModuleDestroy {
       `[acquirePage] geo=${proxyGeo} | Использую браузер с наименьшим количеством вкладок: ${wrapper.pages.length}`,
     );
 
-    const page = await this._openPage(wrapper, userAgent, locale, timeZone, creativeId, proxyGeo);
+    const page = await this._openPage(wrapper, userAgent, locale, timeZone, proxyGeo);
     logAllGeoPoolsTable(this.browserPool);
     return page;
   }
@@ -177,7 +170,6 @@ export class PuppeteerService implements OnModuleDestroy {
     userAgent: string,
     locale: string,
     timeZone: string,
-    creativeId: string,
     proxyGeo: CountryCode,
   ): Promise<Page> {
     this.logger.debug(
@@ -202,6 +194,11 @@ export class PuppeteerService implements OnModuleDestroy {
 
     wrapper.pages.push(page);
 
+    page.on('close', () => {
+      this.logger.debug(`[_openPage] geo=${proxyGeo} | Вкладка закрыта, удаляю из времени`);
+      pageOpenTimes.delete(page);
+    });
+
     this.logger.debug(
       `[_openPage] geo=${proxyGeo} | Вкладка создана, время: ${pageOpenTime}, всего вкладок: ${wrapper.pages.length}`,
     );
@@ -215,51 +212,50 @@ export class PuppeteerService implements OnModuleDestroy {
       this.logger.error(`Error in page.authenticate: ${e.message}`);
     }
 
-    await page.setUserAgent(userAgent);
-    const headers = HEADERS(locale, userAgent);
-    await page.setExtraHTTPHeaders(headers);
-    await page.emulateTimezone(timeZone);
+    try {
+      await page.setUserAgent(userAgent);
+      const headers = HEADERS(locale, userAgent);
+      await page.setExtraHTTPHeaders(headers);
+      await page.emulateTimezone(timeZone);
 
-    const localeRaw = getBrowserSpoofScript(locale, timeZone);
-    const localeScript = this.sanitizeModuleScript(localeRaw);
+      const localeRaw = getBrowserSpoofScript(locale, timeZone);
+      const localeScript = this.sanitizeModuleScript(localeRaw);
 
-    await page.evaluateOnNewDocument(`(()=>{${localeScript}})();`);
+      await page.evaluateOnNewDocument(`(()=>{${localeScript}})();`);
 
-    const baseViewport = getRandomItem(MOBILE_VIEWPORTS);
-    const isLandscape = baseViewport.screenSize > 7 && Math.random() < 0.5;
+      const baseViewport = getRandomItem(MOBILE_VIEWPORTS);
+      const isLandscape = baseViewport.screenSize > 7 && Math.random() < 0.5;
 
-    await page.emulate({
-      viewport: {
-        width: isLandscape ? baseViewport.height : baseViewport.width,
-        height: isLandscape ? baseViewport.width : baseViewport.height,
-        deviceScaleFactor: baseViewport.deviceScaleFactor,
-        isMobile: true,
-        hasTouch: true,
-      },
-      userAgent,
-    });
-    await page.setRequestInterception(true);
+      await page.emulate({
+        viewport: {
+          width: isLandscape ? baseViewport.height : baseViewport.width,
+          height: isLandscape ? baseViewport.width : baseViewport.height,
+          deviceScaleFactor: baseViewport.deviceScaleFactor,
+          isMobile: true,
+          hasTouch: true,
+        },
+        userAgent,
+      });
+      await page.setRequestInterception(true);
 
-    page.on('request', async (req) => {
-      return req.continue();
-    });
+      page.on('request', async (req) => {
+        return req.continue();
+      });
 
-    page.on('error', (err) => {
-      if (this.handleChromePropertyError(err, `Page error [${proxyGeo}]`)) return;
-    });
+      page.on('error', (err) => {
+        if (this.handleChromePropertyError(err, `Page error [${proxyGeo}]`)) return;
+      });
 
-    page.on('pageerror', (err) => {
-      if (err.message.includes('setCookie is not defined')) {
-        return;
-      }
-      if (this.handleChromePropertyError(err, `Runtime error [${proxyGeo}]`)) return;
-      this.logger.error(`Runtime error [${proxyGeo}]: ${err}`);
-    });
-
-    page.on('close', () => {
-      this.logger.debug(`[_openPage] geo=${proxyGeo} | Вкладка закрыта, удаляю из времени`);
-      pageOpenTimes.delete(page);
-    });
+      page.on('pageerror', (err) => {
+        if (err.message.includes('setCookie is not defined')) {
+          return;
+        }
+        if (this.handleChromePropertyError(err, `Runtime error [${proxyGeo}]`)) return;
+        this.logger.error(`Runtime error [${proxyGeo}]: ${err}`);
+      });
+    } catch (error) {
+      this.logger.error(`[_openPage] geo=${proxyGeo} | Error setting up page: ${error.message}`);
+    }
 
     return page;
   }
@@ -277,6 +273,10 @@ export class PuppeteerService implements OnModuleDestroy {
       this.logger.debug(
         `[releasePage] geo=${geo} | Закрываю вкладку, время жизни: ${pageAge}ms, всего вкладок в браузере: ${wrapper.pages.length}`,
       );
+
+      if (!pageOpenTime) {
+        this.logger.warn(`[releasePage] geo=${geo} | ВНИМАНИЕ: Вкладка не имеет записи времени!`);
+      }
 
       wrapper.pages.splice(idx, 1);
       pageOpenTimes.delete(page);

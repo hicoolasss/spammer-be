@@ -11,7 +11,6 @@ import * as path from 'path';
 import { Browser, Page } from 'puppeteer';
 
 import { AIService } from '../ai/ai.service';
-import { FormField } from '../interfaces/lead.interfaces';
 import { PuppeteerService } from '../puppeteer/puppeteer.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -312,11 +311,7 @@ export class TaskProcessorService {
 
     try {
       this.logger.info(`[TASK_${taskId}] 🚀 Starting task, acquiring page for geo=${geo}`);
-      const puppeteerPage = await this.puppeteerService.acquirePage(
-        'task-processor',
-        geo as CountryCode,
-        userAgent,
-      );
+      const puppeteerPage = await this.puppeteerService.acquirePage(geo as CountryCode, userAgent);
       page = puppeteerPage;
       this.logger.info(`[TASK_${taskId}] ✅ Page acquired successfully`);
 
@@ -363,7 +358,7 @@ export class TaskProcessorService {
     } finally {
       const taskDuration = Date.now() - taskStartTime;
       this.logger.info(`[TASK_${taskId}] ⏱️ Task completed in ${taskDuration}ms, releasing page`);
-      
+
       if (finalPage && !finalPage.isClosed()) {
         this.logger.debug(`[TASK_${taskId}] Releasing finalPage for geo=${geo}`);
         await this.puppeteerService.releasePage(finalPage, geo as CountryCode);
