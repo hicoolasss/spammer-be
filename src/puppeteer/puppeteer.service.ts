@@ -30,6 +30,17 @@ export class PuppeteerService implements OnModuleDestroy {
     return script.replace(/^\s*(export|import)\s.*$/gm, '');
   }
 
+  private handleChromePropertyError(err: Error, context: string): boolean {
+    if (err.message.includes('Cannot redefine property: chrome')) {
+      return true; // Error handled, should be ignored
+    }
+    if (err.message.includes('Cannot redefine property')) {
+      return true; // Error handled, should be ignored
+    }
+    this.logger.error(`${context} error: ${err}`);
+    return false; // Error not handled, should be logged
+  }
+
   async onModuleInit() {
     if (!process.env.PROXY_HOST) {
       this.logger.error('Proxy host is not set in environment variables');
@@ -239,11 +250,16 @@ export class PuppeteerService implements OnModuleDestroy {
     page.on('request', async (req) => {
       return req.continue();
     });
-    page.on('error', (err) => this.logger.error(`Page error [${proxyGeo}]: ${err}`));
+
+    page.on('error', (err) => {
+      if (this.handleChromePropertyError(err, `Page error [${proxyGeo}]`)) return;
+    });
+
     page.on('pageerror', (err) => {
       if (err.message.includes('setCookie is not defined')) {
         return;
       }
+      if (this.handleChromePropertyError(err, `Runtime error [${proxyGeo}]`)) return;
       this.logger.error(`Runtime error [${proxyGeo}]: ${err}`);
     });
 
@@ -259,7 +275,9 @@ export class PuppeteerService implements OnModuleDestroy {
       if (idx === -1) continue;
 
       const pageOpenTime = pageOpenTimes.get(page);
-      this.logger.debug(`[releasePage] geo=${geo} | Закрываю вкладку, время жизни: ${pageOpenTime ? Date.now() - pageOpenTime : 'unknown'}ms`);
+      this.logger.debug(
+        `[releasePage] geo=${geo} | Закрываю вкладку, время жизни: ${pageOpenTime ? Date.now() - pageOpenTime : 'unknown'}ms`,
+      );
 
       wrapper.pages.splice(idx, 1);
       pageOpenTimes.delete(page);
@@ -304,6 +322,16 @@ export class PuppeteerService implements OnModuleDestroy {
           '--disable-blink-features=AutomationControlled',
           '--no-sandbox',
           '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+          '--disable-features=TranslateUI',
+          '--disable-ipc-flooding-protection',
         ],
         slowMo: 0,
         defaultViewport: null,
@@ -322,6 +350,11 @@ export class PuppeteerService implements OnModuleDestroy {
       this.logger.warn(`[createBrowser] Browser disconnected, clearing all pools`);
       this.browserPool.clear();
     });
+
+    browser.on('error', (err: Error) => {
+      if (this.handleChromePropertyError(err, 'Browser error')) return;
+    });
+
     return browser;
   }
 
@@ -357,6 +390,11 @@ export class PuppeteerService implements OnModuleDestroy {
 
       const browser = await this.createBrowser(locale, timeZone);
       const context = await browser.createBrowserContext();
+
+      context.on('error', (err: Error) => {
+        if (this.handleChromePropertyError(err, 'Context error')) return;
+      });
+
       wrapper = { browser, context, pages: [] };
       pool.push(wrapper);
       this.browserPool.set(countryCode, pool);
@@ -386,6 +424,11 @@ export class PuppeteerService implements OnModuleDestroy {
       }
       const browser = await this.createBrowser(locale, timeZone);
       const context = await browser.createBrowserContext();
+
+      context.on('error', (err: Error) => {
+        if (this.handleChromePropertyError(err, 'Context error')) return;
+      });
+
       wrapper = { browser, context, pages: [] };
       pool.push(wrapper);
       this.browserPool.set(countryCode, pool);

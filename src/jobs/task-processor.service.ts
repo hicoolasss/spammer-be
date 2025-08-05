@@ -226,10 +226,6 @@ export class TaskProcessorService {
       }
 
       await task.save();
-
-      this.logger.info(
-        `[TASK_${taskId}] Updated statistics: total=${task.result.total}, success=${JSON.stringify(task.result.success)}`,
-      );
     } catch (error) {
       this.logger.error(`[TASK_${taskId}] Error updating task statistics: ${error.message}`, error);
     }
