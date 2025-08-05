@@ -358,6 +358,12 @@ export class TaskProcessorService {
           error.message.includes('net::ERR_') ||
           error.message.includes('ERR_TUNNEL_CONNECTION_FAILED')) {
         this.logger.warn(`[TASK_${taskId}] Network error: ${error.message}`);
+      } else if (error.message.includes('SyntaxError') || 
+                 error.message.includes('Unexpected token') ||
+                 error.message.includes('Unexpected identifier') ||
+                 error.message.includes('Unexpected end of input') ||
+                 error.message.includes('Invalid or unexpected token')) {
+        this.logger.warn(`[TASK_${taskId}] Syntax error: ${error.message}`);
       } else {
         this.logger.error(`[TASK_${taskId}] Error in Puppeteer task: ${error.message}`, error);
       }
@@ -439,6 +445,14 @@ export class TaskProcessorService {
         error.message.includes('Session closed')
       ) {
         this.logger.warn('[TASK_UNKNOWN] Page context was destroyed, skipping action');
+        return null;
+      }
+      if (error.message.includes('SyntaxError') || 
+          error.message.includes('Unexpected token') ||
+          error.message.includes('Unexpected identifier') ||
+          error.message.includes('Unexpected end of input') ||
+          error.message.includes('Invalid or unexpected token')) {
+        this.logger.warn(`[TASK_UNKNOWN] Syntax error in action: ${error.message}`);
         return null;
       }
       this.logger.error(`[TASK_UNKNOWN] Error executing action: ${error.message}`);

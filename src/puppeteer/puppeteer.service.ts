@@ -40,6 +40,21 @@ export class PuppeteerService implements OnModuleDestroy {
     if (err.message.includes('Cannot redefine property')) {
       return true; // Error handled, should be ignored
     }
+    if (err.message.includes('Unexpected token')) {
+      return true; // Error handled, should be ignored
+    }
+    if (err.message.includes('SyntaxError')) {
+      return true; // Error handled, should be ignored
+    }
+    if (err.message.includes('Unexpected identifier')) {
+      return true; // Error handled, should be ignored
+    }
+    if (err.message.includes('Unexpected end of input')) {
+      return true; // Error handled, should be ignored
+    }
+    if (err.message.includes('Invalid or unexpected token')) {
+      return true; // Error handled, should be ignored
+    }
     this.logger.error(`${context} error: ${err}`);
     return false; // Error not handled, should be logged
   }
@@ -271,6 +286,18 @@ export class PuppeteerService implements OnModuleDestroy {
         }
         if (err.message.includes('SyntaxError')) {
           return;
+        }
+        if (err.message.includes('Unexpected token')) {
+          return; // Ignore syntax errors with unexpected tokens
+        }
+        if (err.message.includes('Unexpected identifier')) {
+          return; // Ignore syntax errors with unexpected identifiers
+        }
+        if (err.message.includes('Unexpected end of input')) {
+          return; // Ignore syntax errors with unexpected end of input
+        }
+        if (err.message.includes('Invalid or unexpected token')) {
+          return; // Ignore syntax errors with invalid tokens
         }
         if (this.handleChromePropertyError(err, `Runtime error [${proxyGeo}]`)) return;
         this.logger.error(`Runtime error [${proxyGeo}]: ${err}`);
