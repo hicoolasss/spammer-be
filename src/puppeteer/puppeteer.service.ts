@@ -30,9 +30,12 @@ export class PuppeteerService implements OnModuleDestroy {
   private readonly MAX_TABS_PER_BROWSER: number;
 
   constructor() {
-    this.MAX_BROWSERS_PER_GEO = Number(process.env.MAX_BROWSERS_PER_GEO) || 5;
-    this.MAX_TABS_PER_BROWSER = Number(process.env.MAX_TABS_PER_BROWSER) || 10;
+    this.MAX_BROWSERS_PER_GEO = Number(process.env.MAX_BROWSERS_PER_GEO) || 3;
+    this.MAX_TABS_PER_BROWSER = Number(process.env.MAX_TABS_PER_BROWSER) || 20;
 
+    this.logger.info(
+      `[PuppeteerService] Environment variables: MAX_BROWSERS_PER_GEO=${process.env.MAX_BROWSERS_PER_GEO}, MAX_TABS_PER_BROWSER=${process.env.MAX_TABS_PER_BROWSER}`,
+    );
     this.logger.info(
       `[PuppeteerService] Initialized with MAX_BROWSERS_PER_GEO=${this.MAX_BROWSERS_PER_GEO}, MAX_TABS_PER_BROWSER=${this.MAX_TABS_PER_BROWSER}`,
     );
@@ -199,6 +202,10 @@ export class PuppeteerService implements OnModuleDestroy {
     creativeId: string,
     proxyGeo: CountryCode,
   ): Promise<Page> {
+    this.logger.debug(
+      `[_openPage] geo=${proxyGeo} | Текущие вкладки: ${wrapper.pages.length}, лимит: ${this.MAX_TABS_PER_BROWSER}`,
+    );
+
     if (wrapper.pages.length >= this.MAX_TABS_PER_BROWSER) {
       this.logger.error(
         `[_openPage] geo=${proxyGeo} | Попытка открыть вкладку при переполнении: уже ${wrapper.pages.length} вкладок (лимит ${this.MAX_TABS_PER_BROWSER})`,
@@ -209,9 +216,17 @@ export class PuppeteerService implements OnModuleDestroy {
     const page = await wrapper.context.newPage();
     const pageOpenTime = Date.now();
     pageOpenTimes.set(page, pageOpenTime);
+
+    const storedTime = pageOpenTimes.get(page);
+    this.logger.debug(
+      `[_openPage] geo=${proxyGeo} | Вкладка создана, время: ${pageOpenTime}, сохранено: ${storedTime}, всего вкладок: ${wrapper.pages.length}`,
+    );
+
     wrapper.pages.push(page);
 
-    this.logger.debug(`[_openPage] geo=${proxyGeo} | Вкладка создана, время: ${pageOpenTime}`);
+    this.logger.debug(
+      `[_openPage] geo=${proxyGeo} | Вкладка создана, время: ${pageOpenTime}, всего вкладок: ${wrapper.pages.length}`,
+    );
 
     try {
       await page.authenticate({
@@ -263,6 +278,11 @@ export class PuppeteerService implements OnModuleDestroy {
       this.logger.error(`Runtime error [${proxyGeo}]: ${err}`);
     });
 
+    page.on('close', () => {
+      this.logger.debug(`[_openPage] geo=${proxyGeo} | Вкладка закрыта, удаляю из времени`);
+      pageOpenTimes.delete(page);
+    });
+
     return page;
   }
 
@@ -275,8 +295,9 @@ export class PuppeteerService implements OnModuleDestroy {
       if (idx === -1) continue;
 
       const pageOpenTime = pageOpenTimes.get(page);
+      const pageAge = pageOpenTime ? Date.now() - pageOpenTime : 'unknown';
       this.logger.debug(
-        `[releasePage] geo=${geo} | Закрываю вкладку, время жизни: ${pageOpenTime ? Date.now() - pageOpenTime : 'unknown'}ms`,
+        `[releasePage] geo=${geo} | Закрываю вкладку, время жизни: ${pageAge}ms, всего вкладок в браузере: ${wrapper.pages.length}`,
       );
 
       wrapper.pages.splice(idx, 1);
@@ -286,7 +307,12 @@ export class PuppeteerService implements OnModuleDestroy {
       page.removeAllListeners('request');
       await page.close().catch(() => {});
 
+      this.logger.debug(
+        `[releasePage] geo=${geo} | Вкладка закрыта, осталось вкладок: ${wrapper.pages.length}`,
+      );
+
       if (wrapper.pages.length === 0) {
+        this.logger.debug(`[releasePage] geo=${geo} | Браузер пуст, закрываю его`);
         await wrapper.context.close().catch(() => {});
         await wrapper.browser.close().catch(() => {});
         pool.splice(pool.indexOf(wrapper), 1);

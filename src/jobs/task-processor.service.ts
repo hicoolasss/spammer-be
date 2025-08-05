@@ -304,18 +304,21 @@ export class TaskProcessorService {
     const { geo, shouldClickRedirectLink } = task;
     const taskId = task._id.toString();
     let finalRedirectUrl: string | null = null;
+    const taskStartTime = Date.now();
 
     let page: Page | null = null;
     let finalPage: Page | null = null;
     let afterSubmitUrl;
 
     try {
+      this.logger.info(`[TASK_${taskId}] 🚀 Starting task, acquiring page for geo=${geo}`);
       const puppeteerPage = await this.puppeteerService.acquirePage(
         'task-processor',
         geo as CountryCode,
         userAgent,
       );
       page = puppeteerPage;
+      this.logger.info(`[TASK_${taskId}] ✅ Page acquired successfully`);
 
       this.logger.info(`[TASK_${taskId}] Navigating to: ${finalUrl}`);
 
@@ -358,9 +361,14 @@ export class TaskProcessorService {
     } catch (error) {
       this.logger.error(`[TASK_${taskId}] Error in Puppeteer task: ${error.message}`, error);
     } finally {
+      const taskDuration = Date.now() - taskStartTime;
+      this.logger.info(`[TASK_${taskId}] ⏱️ Task completed in ${taskDuration}ms, releasing page`);
+      
       if (finalPage && !finalPage.isClosed()) {
+        this.logger.debug(`[TASK_${taskId}] Releasing finalPage for geo=${geo}`);
         await this.puppeteerService.releasePage(finalPage, geo as CountryCode);
       } else if (page && !page.isClosed()) {
+        this.logger.debug(`[TASK_${taskId}] Releasing original page for geo=${geo}`);
         await this.puppeteerService.releasePage(page, geo as CountryCode);
       }
 

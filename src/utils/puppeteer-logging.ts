@@ -31,7 +31,6 @@ export function logAllGeoPoolsTable(browserPool: Map<CountryCode, BrowserWrapper
       const tabAges = w.pages.map((p) => {
         const t = pageOpenTimes.get(p);
         if (!t) {
-          console.log(`[DEBUG] Page ${p.url()} has no time recorded`);
           return '?';
         }
         return formatDuration(now - t);
