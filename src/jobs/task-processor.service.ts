@@ -370,6 +370,8 @@ export class TaskProcessorService {
       } else if (page && !page.isClosed()) {
         this.logger.debug(`[TASK_${taskId}] Releasing original page for geo=${geo}`);
         await this.puppeteerService.releasePage(page, geo as CountryCode);
+      } else {
+        this.logger.debug(`[TASK_${taskId}] No page to release, both pages are closed`);
       }
 
       await this.updateTaskStatistics(task._id.toString(), afterSubmitUrl || finalRedirectUrl);
@@ -769,10 +771,7 @@ export class TaskProcessorService {
       pauseChance: number;
       pauseDuration: { min: number; max: number };
     },
-    taskId?: string,
   ): Promise<void> {
-    const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
-
     await this.prepareField(page, selector);
 
     for (let i = 0; i < value.length; i++) {
@@ -784,7 +783,7 @@ export class TaskProcessorService {
       await this.sleep(totalDelay);
 
       if (Math.random() < config.typoChance && i < value.length - 1) {
-        await this.simulateTypo(page, selector, taskPrefix);
+        await this.simulateTypo(page, selector);
       }
 
       if (Math.random() < config.pauseChance && i < value.length - 1) {
@@ -826,7 +825,7 @@ export class TaskProcessorService {
     );
   }
 
-  private async simulateTypo(page: Page, selector: string, taskPrefix: string): Promise<void> {
+  private async simulateTypo(page: Page, selector: string): Promise<void> {
     const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26));
 
     await this.addCharacter(page, selector, typoChar);
@@ -873,7 +872,7 @@ export class TaskProcessorService {
     }
   }
 
-  private async simulateFieldTransition(page: Page, taskId?: string): Promise<void> {
+  private async simulateFieldTransition(page: Page): Promise<void> {
     const basePause = 800 + Math.random() * 1200;
     const readingPause = Math.random() < 0.2 ? 500 + Math.random() * 1_000 : 0;
     const quickPause = Math.random() < 0.1 ? Math.random() * 300 : 0;
@@ -1093,13 +1092,13 @@ export class TaskProcessorService {
             }
 
             const typingConfig = this.getTypingConfig(field.type);
-            await this.fillFieldWithTyping(page, field.selector, value, typingConfig, taskId);
+            await this.fillFieldWithTyping(page, field.selector, value, typingConfig);
 
             this.logger.info(
               `${taskPrefix} ✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
             );
 
-            await this.simulateFieldTransition(page, taskId);
+            await this.simulateFieldTransition(page);
           } catch (error) {
             this.logger.warn(
               `${taskPrefix} Failed to fill field ${field.selector}: ${error.message}`,

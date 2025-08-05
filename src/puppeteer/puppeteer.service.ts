@@ -12,18 +12,6 @@ import { browserOpenTimes, logAllGeoPoolsTable, pageOpenTimes } from 'src/utils/
 export class PuppeteerService implements OnModuleDestroy {
   private readonly logger = new LogWrapper(PuppeteerService.name);
   private browserPool = new Map<CountryCode, BrowserWrapper[]>();
-  private geoTaskQueues = new Map<
-    CountryCode,
-    Array<{
-      creativeId: string;
-      proxyGeo: CountryCode;
-      userAgent: string;
-      locale: string;
-      timeZone: string;
-      resolve: (value: Page) => void;
-      reject: (reason?: any) => void;
-    }>
-  >();
   private browserCreationLocks = new Map<CountryCode, Promise<void>>();
 
   private readonly MAX_BROWSERS_PER_GEO: number;
@@ -139,7 +127,6 @@ export class PuppeteerService implements OnModuleDestroy {
           newWrapper.pages.push(
             await this._openPage(newWrapper, userAgent, locale, timeZone, creativeId, proxyGeo),
           );
-          this._drainGeoQueue(proxyGeo);
           logAllGeoPoolsTable(this.browserPool);
           return newWrapper.pages[0];
         } catch (err) {
@@ -175,23 +162,14 @@ export class PuppeteerService implements OnModuleDestroy {
       );
     }
 
+    wrapper = pool.reduce((min, w) => (w.pages.length < min.pages.length ? w : min), pool[0]);
     this.logger.debug(
-      `[acquirePage] geo=${proxyGeo} | Все браузеры заполнены и лимит достигнут, ставлю задачу в очередь`,
+      `[acquirePage] geo=${proxyGeo} | Использую браузер с наименьшим количеством вкладок: ${wrapper.pages.length}`,
     );
-    return new Promise<Page>((resolve, reject) => {
-      if (!this.geoTaskQueues.has(proxyGeo)) {
-        this.geoTaskQueues.set(proxyGeo, []);
-      }
-      this.geoTaskQueues.get(proxyGeo)!.push({
-        creativeId,
-        proxyGeo,
-        userAgent,
-        locale,
-        timeZone,
-        resolve,
-        reject,
-      });
-    });
+
+    const page = await this._openPage(wrapper, userAgent, locale, timeZone, creativeId, proxyGeo);
+    logAllGeoPoolsTable(this.browserPool);
+    return page;
   }
 
   private async _openPage(
@@ -324,7 +302,6 @@ export class PuppeteerService implements OnModuleDestroy {
 
       logAllGeoPoolsTable(this.browserPool);
 
-      this._drainGeoQueue(geo);
       return;
     }
   }
@@ -431,55 +408,5 @@ export class PuppeteerService implements OnModuleDestroy {
     );
     wrapper = pool.reduce((min, w) => (w.pages.length < min.pages.length ? w : min), pool[0]);
     return wrapper;
-  }
-
-  private hasAvailableSlot(geo: CountryCode): boolean {
-    const pool = this.browserPool.get(geo) || [];
-
-    const hasAvailableBrowser = pool.some((w) => w.pages.length < this.MAX_TABS_PER_BROWSER);
-    if (hasAvailableBrowser) return true;
-
-    if (pool.length < this.MAX_BROWSERS_PER_GEO) return true;
-
-    return false;
-  }
-
-  private async _drainGeoQueue(geo: CountryCode) {
-    const currentPool = this.browserPool.get(geo) || [];
-    const queue = this.geoTaskQueues.get(geo);
-    let freeSlots = currentPool.reduce(
-      (acc, w) => acc + (this.MAX_TABS_PER_BROWSER - w.pages.length),
-      0,
-    );
-
-    while (
-      queue &&
-      queue.length > 0 &&
-      (freeSlots > 0 || currentPool.length < this.MAX_BROWSERS_PER_GEO)
-    ) {
-      const next = queue.shift();
-      if (!next) break;
-
-      if (freeSlots > 0) {
-        this.logger.debug(
-          `[_drainGeoQueue] geo=${geo} | Запускаю задачу из очереди, осталось слотов: ${freeSlots}`,
-        );
-        this.acquirePage(next.creativeId, next.proxyGeo, next.userAgent)
-          .then(next.resolve)
-          .catch(next.reject);
-        freeSlots--;
-      } else if (currentPool.length < this.MAX_BROWSERS_PER_GEO) {
-        this.logger.debug(
-          `[_drainGeoQueue] geo=${geo} | Нет свободных вкладок, но можно создать новый браузер — инициирую acquirePage для очереди`,
-        );
-        this.acquirePage(next.creativeId, next.proxyGeo, next.userAgent)
-          .then(next.resolve)
-          .catch(next.reject);
-      }
-    }
-    if (queue && queue.length > 0) {
-      this.logger.debug(`[_drainGeoQueue] geo=${geo} | Осталось задач в очереди: ${queue.length}`);
-    }
-    logAllGeoPoolsTable(this.browserPool);
   }
 }

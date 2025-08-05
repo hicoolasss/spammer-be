@@ -39,6 +39,7 @@ export class AgendaService implements OnModuleInit {
             this.logger.error('runTask job: taskId is missing in job data');
             return;
           }
+          this.logger.debug(`[AgendaService] Executing runTask for taskId=${taskId}`);
           await this.taskProcessorService.processTasks(taskId);
           const task = await this.taskModel.findById(taskId);
           if (task && task.status === TaskStatus.ACTIVE) {
@@ -114,6 +115,7 @@ export class AgendaService implements OnModuleInit {
     if (!nextRun) return;
     await agenda.schedule(nextRun, 'runTask', { taskId: taskId.toString() });
     this.logger.info(`Scheduled runTask for task ${taskId} at ${nextRun}`);
+    this.logger.debug(`[AgendaService] Task ${taskId} scheduled for geo=${task.geo}, interval=${task.intervalMinutes}min`);
   }
 
   async cancelTaskJob(taskId: string) {
