@@ -354,7 +354,13 @@ export class TaskProcessorService {
         this.logger.info(`[TASK_${taskId}] Final redirect URL: ${finalRedirectUrl}`);
       }
     } catch (error) {
-      this.logger.error(`[TASK_${taskId}] Error in Puppeteer task: ${error.message}`, error);
+      if (error.message.includes('net::ERR_TUNNEL_CONNECTION_FAILED') || 
+          error.message.includes('net::ERR_') ||
+          error.message.includes('ERR_TUNNEL_CONNECTION_FAILED')) {
+        this.logger.warn(`[TASK_${taskId}] Network error: ${error.message}`);
+      } else {
+        this.logger.error(`[TASK_${taskId}] Error in Puppeteer task: ${error.message}`, error);
+      }
     } finally {
       const taskDuration = Date.now() - taskStartTime;
       this.logger.info(`[TASK_${taskId}] ⏱️ Task completed in ${taskDuration}ms, releasing page`);

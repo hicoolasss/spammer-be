@@ -185,9 +185,14 @@ export class PuppeteerService implements OnModuleDestroy {
 
     const page = await wrapper.context.newPage();
     const pageOpenTime = Date.now();
-    pageOpenTimes.set(page, pageOpenTime);
 
+    pageOpenTimes.set(page, pageOpenTime);
     const storedTime = pageOpenTimes.get(page);
+
+    if (!storedTime) {
+      this.logger.error(`[_openPage] geo=${proxyGeo} | FAILED to store page time!`);
+    }
+
     this.logger.debug(
       `[_openPage] geo=${proxyGeo} | Вкладка создана, время: ${pageOpenTime}, сохранено: ${storedTime}, всего вкладок: ${wrapper.pages.length}`,
     );
@@ -243,6 +248,14 @@ export class PuppeteerService implements OnModuleDestroy {
       });
 
       page.on('error', (err) => {
+        if (err.message.includes('net::ERR_TUNNEL_CONNECTION_FAILED')) {
+          this.logger.warn(`[PuppeteerService] Network error [${proxyGeo}]: ${err.message}`);
+          return;
+        }
+        if (err.message.includes('net::ERR_')) {
+          this.logger.warn(`[PuppeteerService] Network error [${proxyGeo}]: ${err.message}`);
+          return;
+        }
         if (this.handleChromePropertyError(err, `Page error [${proxyGeo}]`)) return;
       });
 
@@ -250,11 +263,26 @@ export class PuppeteerService implements OnModuleDestroy {
         if (err.message.includes('setCookie is not defined')) {
           return;
         }
+        if (err.message.includes('Identifier') && err.message.includes('has already been declared')) {
+          return;
+        }
+        if (err.message.includes('e.indexOf is not a function')) {
+          return;
+        }
+        if (err.message.includes('SyntaxError')) {
+          return;
+        }
         if (this.handleChromePropertyError(err, `Runtime error [${proxyGeo}]`)) return;
         this.logger.error(`Runtime error [${proxyGeo}]: ${err}`);
       });
     } catch (error) {
       this.logger.error(`[_openPage] geo=${proxyGeo} | Error setting up page: ${error.message}`);
+    }
+
+    const finalTime = pageOpenTimes.get(page);
+    if (!finalTime) {
+      this.logger.error(`[_openPage] geo=${proxyGeo} | Page time was lost during setup!`);
+      pageOpenTimes.set(page, pageOpenTime);
     }
 
     return page;
@@ -276,6 +304,7 @@ export class PuppeteerService implements OnModuleDestroy {
 
       if (!pageOpenTime) {
         this.logger.warn(`[releasePage] geo=${geo} | ВНИМАНИЕ: Вкладка не имеет записи времени!`);
+        this.logger.debug(`[releasePage] geo=${geo} | Page URL: ${page.url()}, isClosed: ${page.isClosed()}`);
       }
 
       wrapper.pages.splice(idx, 1);
