@@ -912,7 +912,7 @@ export class TaskProcessorService {
     isQuiz?: boolean,
   ): Promise<string | null> {
     const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
-    this.logger.info(`${taskPrefix} Filling form with lead data using AI analysis...`);
+
     this.logger.info(`${taskPrefix} Available lead data: ${JSON.stringify(leadData)}`);
 
     if (page.isClosed()) {

@@ -196,8 +196,11 @@ export class PuppeteerService implements OnModuleDestroy {
     }
 
     const page = await wrapper.context.newPage();
-    pageOpenTimes.set(page, Date.now());
+    const pageOpenTime = Date.now();
+    pageOpenTimes.set(page, pageOpenTime);
     wrapper.pages.push(page);
+
+    this.logger.debug(`[_openPage] geo=${proxyGeo} | Вкладка создана, время: ${pageOpenTime}`);
 
     try {
       await page.authenticate({
@@ -254,6 +257,9 @@ export class PuppeteerService implements OnModuleDestroy {
       const idx = wrapper.pages.indexOf(page);
 
       if (idx === -1) continue;
+
+      const pageOpenTime = pageOpenTimes.get(page);
+      this.logger.debug(`[releasePage] geo=${geo} | Закрываю вкладку, время жизни: ${pageOpenTime ? Date.now() - pageOpenTime : 'unknown'}ms`);
 
       wrapper.pages.splice(idx, 1);
       pageOpenTimes.delete(page);
@@ -408,9 +414,7 @@ export class PuppeteerService implements OnModuleDestroy {
     const queue = this.geoTaskQueues.get(geo);
     let freeSlots = currentPool.reduce((acc, w) => acc + (MAX_TABS - w.pages.length), 0);
     const MAX_BROWSERS = Number(process.env.MAX_BROWSERS_PER_GEO) || 5;
-    this.logger.debug(
-      `[_drainGeoQueue] geo=${geo} | browsers=${currentPool.length} | tabs=[${currentPool.map((w) => w.pages.length).join(',')}] | reserved=[${currentPool.map((w) => w.pages.length).join(',')}] | freeSlots=${freeSlots} | queueLength=${queue?.length || 0} | passedPoolLength=${pool.length}`,
-    );
+
     while (queue && queue.length > 0 && (freeSlots > 0 || currentPool.length < MAX_BROWSERS)) {
       const next = queue.shift();
       if (!next) break;

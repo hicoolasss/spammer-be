@@ -30,7 +30,11 @@ export function logAllGeoPoolsTable(browserPool: Map<CountryCode, BrowserWrapper
       const browserAge = browserTime ? formatDuration(now - browserTime) : '?';
       const tabAges = w.pages.map((p) => {
         const t = pageOpenTimes.get(p);
-        return t ? formatDuration(now - t) : '?';
+        if (!t) {
+          console.log(`[DEBUG] Page ${p.url()} has no time recorded`);
+          return '?';
+        }
+        return formatDuration(now - t);
       });
       const rowTabs = tabAges.slice(0, maxTabs);
       while (rowTabs.length < tabHeaders.length) rowTabs.push('-');
