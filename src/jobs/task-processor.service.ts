@@ -448,9 +448,12 @@ export class TaskProcessorService {
     }
 
     try {
-      const pageHeight = await page.evaluate(() => document.body.scrollHeight);
-      const viewportHeight = await page.evaluate(() => window.innerHeight);
-      const currentScrollY = await page.evaluate(() => window.scrollY);
+      const pageHeight = await page.evaluate(() => {
+        if (!document.body) return 0;
+        return document.body.scrollHeight || 0;
+      });
+      const viewportHeight = await page.evaluate(() => window.innerHeight || 0);
+      const currentScrollY = await page.evaluate(() => window.scrollY || 0);
 
       if (direction === 'down') {
         let currentPosition = currentScrollY;
