@@ -41,6 +41,9 @@ export class PuppeteerService implements OnModuleDestroy {
       },
       5 * 60 * 1000,
     );
+
+    const logRuntimeErrors = process.env.LOG_RUNTIME_ERRORS === 'true';
+    this.logger.info(`[PuppeteerService] Runtime errors logging: ${logRuntimeErrors}`);
   }
 
   private sanitizeModuleScript(script: string): string {
@@ -49,40 +52,72 @@ export class PuppeteerService implements OnModuleDestroy {
 
   private handleChromePropertyError(err: Error, context: string): boolean {
     if (err.message.includes('Cannot redefine property: chrome')) {
-      return true; // Error handled, should be ignored
+      return true;
     }
     if (err.message.includes('Cannot redefine property')) {
-      return true; // Error handled, should be ignored
+      return true;
     }
     if (err.message.includes('Unexpected token')) {
-      return true; // Error handled, should be ignored
+      return true;
     }
     if (err.message.includes('SyntaxError')) {
-      return true; // Error handled, should be ignored
+      return true;
     }
     if (err.message.includes('Unexpected identifier')) {
-      return true; // Error handled, should be ignored
+      return true;
     }
     if (err.message.includes('Unexpected end of input')) {
-      return true; // Error handled, should be ignored
+      return true;
     }
     if (err.message.includes('Invalid or unexpected token')) {
-      return true; // Error handled, should be ignored
+      return true;
     }
     if (err.message.includes('Failed to fetch')) {
-      return true; // Error handled, should be ignored
+      return true;
     }
     if (err.message.includes('TypeError') && err.message.includes('fetch')) {
-      return true; // Error handled, should be ignored
+      return true;
     }
+
+    if (err.message.includes('Cannot read properties of undefined')) {
+      return true;
+    }
+    if (err.message.includes('prototype')) {
+      return true;
+    }
+    if (err.message.includes('masterstroke_ajax is not defined')) {
+      return true;
+    }
+    if (err.message.includes('wp is not defined')) {
+      return true;
+    }
+    if (err.message.includes('i18n')) {
+      return true;
+    }
+    if (err.message.includes('hooks')) {
+      return true;
+    }
+    if (err.message.includes('ReferenceError')) {
+      return true;
+    }
+    if (err.message.includes('TypeError')) {
+      return true;
+    }
+
+    // Системные ошибки браузера
     if (
       err.message.includes('vkCreateInstance') ||
       err.message.includes('VK_ERROR_INCOMPATIBLE_DRIVER') ||
       err.message.includes('eglChooseConfig') ||
-      err.message.includes('BackendType::OpenGLES')
+      err.message.includes('BackendType::OpenGLES') ||
+      err.message.includes('Bind context provider failed') ||
+      err.message.includes('handshake failed') ||
+      err.message.includes('SSL error code') ||
+      err.message.includes('video_capture_service_impl')
     ) {
-      return true; // Error handled, should be ignored
+      return true;
     }
+
     this.logger.error(`${context} error: ${err}`);
     return false; // Error not handled, should be logged
   }
@@ -315,7 +350,6 @@ export class PuppeteerService implements OnModuleDestroy {
       });
 
       page.on('pageerror', (err) => {
-        // Игнорируем распространенные ошибки JavaScript на сайтах
         if (err.message.includes('setCookie is not defined')) {
           return;
         }
@@ -349,8 +383,7 @@ export class PuppeteerService implements OnModuleDestroy {
         if (err.message.includes('TypeError') && err.message.includes('fetch')) {
           return;
         }
-        
-        // Новые фильтры для ошибок из логов
+
         if (err.message.includes('Cannot read properties of undefined')) {
           return;
         }
@@ -375,8 +408,7 @@ export class PuppeteerService implements OnModuleDestroy {
         if (err.message.includes('TypeError')) {
           return;
         }
-        
-        // Логируем только неожиданные ошибки
+
         if (this.handleChromePropertyError(err, `Runtime error [${proxyGeo}]`)) return;
         this.logger.warn(`Runtime error [${proxyGeo}]: ${err.message}`);
       });
@@ -607,13 +639,9 @@ export class PuppeteerService implements OnModuleDestroy {
         err.message.includes("Couldn't get proc eglChooseConfig") ||
         err.message.includes('Failed to fetch') ||
         err.message.includes('TypeError') ||
-        err.message.includes('net::ERR_') ||
-        err.message.includes('Bind context provider failed') ||
-        err.message.includes('handshake failed') ||
-        err.message.includes('SSL error code') ||
-        err.message.includes('video_capture_service_impl')
+        err.message.includes('net::ERR_')
       ) {
-        this.logger.debug(`[createBrowser] System warning: ${err.message}`);
+        this.logger.debug(`[createBrowser] Graphics/Network warning: ${err.message}`);
         return;
       }
       if (this.handleChromePropertyError(err, 'Browser error')) return;
