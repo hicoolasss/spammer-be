@@ -27,9 +27,20 @@ export class PuppeteerService implements OnModuleDestroy {
     this.logger.info(
       `[PuppeteerService] Initialized with MAX_BROWSERS_PER_GEO=${this.MAX_BROWSERS_PER_GEO}, MAX_TABS_PER_BROWSER=${this.MAX_TABS_PER_BROWSER}`,
     );
-    
+
     const disableGpuWarnings = process.env.DISABLE_GPU_WARNINGS === 'true';
     this.logger.info(`[PuppeteerService] GPU warnings disabled: ${disableGpuWarnings}`);
+
+    setInterval(
+      async () => {
+        try {
+          await this.cleanupPoolIssues();
+        } catch (error) {
+          this.logger.error(`[PuppeteerService] Error during periodic cleanup: ${error.message}`);
+        }
+      },
+      5 * 60 * 1000,
+    );
   }
 
   private sanitizeModuleScript(script: string): string {
@@ -64,10 +75,12 @@ export class PuppeteerService implements OnModuleDestroy {
     if (err.message.includes('TypeError') && err.message.includes('fetch')) {
       return true; // Error handled, should be ignored
     }
-    if (err.message.includes('vkCreateInstance') || 
-        err.message.includes('VK_ERROR_INCOMPATIBLE_DRIVER') ||
-        err.message.includes('eglChooseConfig') ||
-        err.message.includes('BackendType::OpenGLES')) {
+    if (
+      err.message.includes('vkCreateInstance') ||
+      err.message.includes('VK_ERROR_INCOMPATIBLE_DRIVER') ||
+      err.message.includes('eglChooseConfig') ||
+      err.message.includes('BackendType::OpenGLES')
+    ) {
       return true; // Error handled, should be ignored
     }
     this.logger.error(`${context} error: ${err}`);
@@ -125,6 +138,10 @@ export class PuppeteerService implements OnModuleDestroy {
     this.logger.debug(
       `[acquirePage] geo=${proxyGeo} | pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO}, MAX_TABS=${this.MAX_TABS_PER_BROWSER}`,
     );
+
+    for (const wrapper of pool) {
+      wrapper.pages = wrapper.pages.filter((page) => !page.isClosed());
+    }
 
     const getBrowserWithFreeSlot = () =>
       pool.find((w) => w.pages.length < this.MAX_TABS_PER_BROWSER);
@@ -301,7 +318,10 @@ export class PuppeteerService implements OnModuleDestroy {
         if (err.message.includes('setCookie is not defined')) {
           return;
         }
-        if (err.message.includes('Identifier') && err.message.includes('has already been declared')) {
+        if (
+          err.message.includes('Identifier') &&
+          err.message.includes('has already been declared')
+        ) {
           return;
         }
         if (err.message.includes('e.indexOf is not a function')) {
@@ -360,7 +380,9 @@ export class PuppeteerService implements OnModuleDestroy {
 
       if (!pageOpenTime) {
         this.logger.warn(`[releasePage] geo=${geo} | ВНИМАНИЕ: Вкладка не имеет записи времени!`);
-        this.logger.debug(`[releasePage] geo=${geo} | Page URL: ${page.url()}, isClosed: ${page.isClosed()}`);
+        this.logger.debug(
+          `[releasePage] geo=${geo} | Page URL: ${page.url()}, isClosed: ${page.isClosed()}`,
+        );
       }
 
       wrapper.pages.splice(idx, 1);
@@ -389,6 +411,98 @@ export class PuppeteerService implements OnModuleDestroy {
 
       return;
     }
+  }
+
+  async diagnosePoolIssues(): Promise<void> {
+    this.logger.info('🔍 Starting pool diagnosis...');
+
+    for (const [geo, pool] of this.browserPool.entries()) {
+      this.logger.info(`\n[DIAGNOSIS] Geo: ${geo}`);
+      this.logger.info(`[DIAGNOSIS] Total browsers: ${pool.length}`);
+
+      let totalTabs = 0;
+      let closedTabs = 0;
+      let orphanedTabs = 0;
+
+      for (const [browserIndex, wrapper] of pool.entries()) {
+        const browserTime = browserOpenTimes.get(wrapper.browser);
+        const browserAge = browserTime ? Date.now() - browserTime : 'unknown';
+
+        this.logger.info(`[DIAGNOSIS] Browser #${browserIndex + 1}:`);
+        this.logger.info(`  - Connected: ${wrapper.browser.isConnected()}`);
+        this.logger.info(`  - Age: ${browserAge}ms`);
+        this.logger.info(`  - Tabs: ${wrapper.pages.length}/${this.MAX_TABS_PER_BROWSER}`);
+
+        totalTabs += wrapper.pages.length;
+
+        for (const [tabIndex, page] of wrapper.pages.entries()) {
+          const pageTime = pageOpenTimes.get(page);
+          const pageAge = pageTime ? Date.now() - pageTime : 'unknown';
+          const isClosed = page.isClosed();
+
+          if (isClosed) closedTabs++;
+          if (!pageTime) orphanedTabs++;
+
+          this.logger.info(
+            `  - Tab #${tabIndex + 1}: ${isClosed ? 'CLOSED' : 'OPEN'}, Age: ${pageAge}ms, URL: ${page.url()}`,
+          );
+        }
+      }
+
+      this.logger.info(`[DIAGNOSIS] Summary for ${geo}:`);
+      this.logger.info(`  - Total tabs: ${totalTabs}`);
+      this.logger.info(`  - Closed tabs: ${closedTabs}`);
+      this.logger.info(`  - Orphaned tabs: ${orphanedTabs}`);
+      this.logger.info(
+        `  - Utilization: ${totalTabs}/${pool.length * this.MAX_TABS_PER_BROWSER} (${Math.round((totalTabs / (pool.length * this.MAX_TABS_PER_BROWSER)) * 100)}%)`,
+      );
+    }
+  }
+
+  async cleanupPoolIssues(): Promise<void> {
+    this.logger.info('🧹 Starting pool cleanup...');
+
+    for (const [geo, pool] of this.browserPool.entries()) {
+      this.logger.info(`[CLEANUP] Cleaning geo: ${geo}`);
+
+      for (const wrapper of pool) {
+        const originalLength = wrapper.pages.length;
+        wrapper.pages = wrapper.pages.filter((page) => !page.isClosed());
+        const removedCount = originalLength - wrapper.pages.length;
+
+        if (removedCount > 0) {
+          this.logger.info(`[CLEANUP] Removed ${removedCount} closed tabs from browser`);
+        }
+      }
+
+      const originalPoolLength = pool.length;
+      const nonEmptyBrowsers = pool.filter((wrapper) => wrapper.pages.length > 0);
+
+      if (nonEmptyBrowsers.length < pool.length) {
+        this.logger.info(
+          `[CLEANUP] Removing ${pool.length - nonEmptyBrowsers.length} empty browsers`,
+        );
+
+        for (const wrapper of pool) {
+          if (wrapper.pages.length === 0) {
+            try {
+              await wrapper.context.close();
+              await wrapper.browser.close();
+            } catch (error) {
+              this.logger.warn(`[CLEANUP] Error closing empty browser: ${error.message}`);
+            }
+          }
+        }
+
+        this.browserPool.set(geo, nonEmptyBrowsers);
+      }
+
+      this.logger.info(
+        `[CLEANUP] Geo ${geo}: ${originalPoolLength} -> ${nonEmptyBrowsers.length} browsers`,
+      );
+    }
+
+    this.logger.info('🧹 Pool cleanup completed');
   }
 
   private async createBrowser(locale: string, timeZone: string): Promise<Browser> {
@@ -456,14 +570,16 @@ export class PuppeteerService implements OnModuleDestroy {
     });
 
     browser.on('error', (err: Error) => {
-      if (err.message.includes('vkCreateInstance') || 
-          err.message.includes('VK_ERROR_INCOMPATIBLE_DRIVER') ||
-          err.message.includes('eglChooseConfig') ||
-          err.message.includes('BackendType::OpenGLES') ||
-          err.message.includes('Couldn\'t get proc eglChooseConfig') ||
-          err.message.includes('Failed to fetch') ||
-          err.message.includes('TypeError') ||
-          err.message.includes('net::ERR_')) {
+      if (
+        err.message.includes('vkCreateInstance') ||
+        err.message.includes('VK_ERROR_INCOMPATIBLE_DRIVER') ||
+        err.message.includes('eglChooseConfig') ||
+        err.message.includes('BackendType::OpenGLES') ||
+        err.message.includes("Couldn't get proc eglChooseConfig") ||
+        err.message.includes('Failed to fetch') ||
+        err.message.includes('TypeError') ||
+        err.message.includes('net::ERR_')
+      ) {
         this.logger.debug(`[createBrowser] Graphics/Network warning: ${err.message}`);
         return;
       }
@@ -483,7 +599,6 @@ export class PuppeteerService implements OnModuleDestroy {
       `[getOrCreateBrowserForGeo] geo=${countryCode} | pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO}, MAX_TABS=${this.MAX_TABS_PER_BROWSER}`,
     );
 
-    // First, try to create a new browser if we haven't reached the limit
     if (pool.length < this.MAX_BROWSERS_PER_GEO) {
       this.logger.debug(
         `[getOrCreateBrowserForGeo] geo=${countryCode} | Создаю новый браузер, pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO}`,
@@ -506,7 +621,6 @@ export class PuppeteerService implements OnModuleDestroy {
       return wrapper;
     }
 
-    // If we can't create a new browser, find existing browser with free slots
     let wrapper = pool.find((w) => w.pages.length < this.MAX_TABS_PER_BROWSER);
     if (wrapper) {
       this.logger.debug(
@@ -515,7 +629,6 @@ export class PuppeteerService implements OnModuleDestroy {
       return wrapper;
     }
 
-    // If no browser has free slots, find the one with the least tabs
     this.logger.debug(
       `[getOrCreateBrowserForGeo] geo=${countryCode} | Не могу создать браузер, pool.length=${pool.length} >= ${this.MAX_BROWSERS_PER_GEO}`,
     );
