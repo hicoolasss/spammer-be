@@ -23,7 +23,7 @@ export function logAllGeoPoolsTable(browserPool: Map<CountryCode, BrowserWrapper
   const now = Date.now();
   for (const [geo, pool] of browserPool.entries()) {
     if (pool.length === 0) {
-      logger.info(`\n[geo=${geo}] No browsers in pool`);
+      logger.info(`[geo=${geo}] No browsers in pool`);
       continue;
     }
 
@@ -59,6 +59,6 @@ export function logAllGeoPoolsTable(browserPool: Map<CountryCode, BrowserWrapper
     logger.info(
       `[geo=${geo}] Browsers: ${pool.length}, Total tabs: ${pool.reduce((sum, w) => sum + w.pages.length, 0)}`,
     );
-    logger.info('\n', table.toString());
+    logger.info(`\n${table.toString()}`);
   }
 }
