@@ -27,6 +27,9 @@ export class PuppeteerService implements OnModuleDestroy {
     this.logger.info(
       `[PuppeteerService] Initialized with MAX_BROWSERS_PER_GEO=${this.MAX_BROWSERS_PER_GEO}, MAX_TABS_PER_BROWSER=${this.MAX_TABS_PER_BROWSER}`,
     );
+    
+    const disableGpuWarnings = process.env.DISABLE_GPU_WARNINGS === 'true';
+    this.logger.info(`[PuppeteerService] GPU warnings disabled: ${disableGpuWarnings}`);
   }
 
   private sanitizeModuleScript(script: string): string {
@@ -411,12 +414,6 @@ export class PuppeteerService implements OnModuleDestroy {
           '--no-first-run',
           '--no-zygote',
           '--disable-gpu',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding',
-          '--disable-features=TranslateUI',
-          '--disable-ipc-flooding-protection',
-          '--disable-vulkan',
           '--disable-gpu-sandbox',
           '--disable-software-rasterizer',
           '--disable-gl-drawing-for-tests',
@@ -424,6 +421,21 @@ export class PuppeteerService implements OnModuleDestroy {
           '--disable-angle',
           '--disable-webgl',
           '--disable-webgl2',
+          '--disable-vulkan',
+          '--disable-vulkan-fallback',
+          '--disable-gpu-compositing',
+          '--disable-gpu-rasterization',
+          '--disable-gpu-memory-buffer-video-frames',
+          '--disable-gpu-memory-buffer-compositor-resources',
+          '--disable-gpu-memory-buffer-video-capture',
+          '--disable-gpu-memory-buffer-2d-canvas',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+          '--disable-features=TranslateUI',
+          '--disable-ipc-flooding-protection',
+          '--use-gl=swiftshader',
+          '--use-angle=swiftshader',
         ],
         slowMo: 0,
         defaultViewport: null,
@@ -447,8 +459,12 @@ export class PuppeteerService implements OnModuleDestroy {
       if (err.message.includes('vkCreateInstance') || 
           err.message.includes('VK_ERROR_INCOMPATIBLE_DRIVER') ||
           err.message.includes('eglChooseConfig') ||
-          err.message.includes('BackendType::OpenGLES')) {
-        this.logger.debug(`[createBrowser] Graphics warning: ${err.message}`);
+          err.message.includes('BackendType::OpenGLES') ||
+          err.message.includes('Couldn\'t get proc eglChooseConfig') ||
+          err.message.includes('Failed to fetch') ||
+          err.message.includes('TypeError') ||
+          err.message.includes('net::ERR_')) {
+        this.logger.debug(`[createBrowser] Graphics/Network warning: ${err.message}`);
         return;
       }
       if (this.handleChromePropertyError(err, 'Browser error')) return;
