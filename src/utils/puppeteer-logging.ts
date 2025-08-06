@@ -57,8 +57,8 @@ export function logAllGeoPoolsTable(browserPool: Map<CountryCode, BrowserWrapper
     });
 
     logger.info(
-      `\n[geo=${geo}] Browsers: ${pool.length}, Total tabs: ${pool.reduce((sum, w) => sum + w.pages.length, 0)}`,
+      `[geo=${geo}] Browsers: ${pool.length}, Total tabs: ${pool.reduce((sum, w) => sum + w.pages.length, 0)}`,
     );
-    logger.info(table.toString());
+    logger.info('\n', table.toString());
   }
 }
