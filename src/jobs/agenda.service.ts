@@ -134,7 +134,8 @@ export class AgendaService implements OnModuleInit {
     const lastRun = task.lastRunAt ? new Date(task.lastRunAt) : null;
     let nextRun: Date;
     if (lastRun) {
-      nextRun = new Date(lastRun.getTime() + (task.intervalMinutes || 1) * 60 * 1_000);
+      // nextRun = new Date(lastRun.getTime() + (task.intervalMinutes || 1) * 60 * 1_000);
+      nextRun = new Date(lastRun.getTime() + 1 * 60 * 1_000); // TEST: RETURN - всегда 1 минута
     } else {
       nextRun = timeFrom;
     }
