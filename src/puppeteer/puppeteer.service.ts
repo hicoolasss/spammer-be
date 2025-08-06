@@ -55,6 +55,18 @@ export class PuppeteerService implements OnModuleDestroy {
     if (err.message.includes('Invalid or unexpected token')) {
       return true; // Error handled, should be ignored
     }
+    if (err.message.includes('Failed to fetch')) {
+      return true; // Error handled, should be ignored
+    }
+    if (err.message.includes('TypeError') && err.message.includes('fetch')) {
+      return true; // Error handled, should be ignored
+    }
+    if (err.message.includes('vkCreateInstance') || 
+        err.message.includes('VK_ERROR_INCOMPATIBLE_DRIVER') ||
+        err.message.includes('eglChooseConfig') ||
+        err.message.includes('BackendType::OpenGLES')) {
+      return true; // Error handled, should be ignored
+    }
     this.logger.error(`${context} error: ${err}`);
     return false; // Error not handled, should be logged
   }
@@ -271,6 +283,14 @@ export class PuppeteerService implements OnModuleDestroy {
           this.logger.warn(`[PuppeteerService] Network error [${proxyGeo}]: ${err.message}`);
           return;
         }
+        if (err.message.includes('Failed to fetch')) {
+          this.logger.warn(`[PuppeteerService] Fetch error [${proxyGeo}]: ${err.message}`);
+          return;
+        }
+        if (err.message.includes('TypeError') && err.message.includes('fetch')) {
+          this.logger.warn(`[PuppeteerService] Fetch error [${proxyGeo}]: ${err.message}`);
+          return;
+        }
         if (this.handleChromePropertyError(err, `Page error [${proxyGeo}]`)) return;
       });
 
@@ -298,6 +318,12 @@ export class PuppeteerService implements OnModuleDestroy {
         }
         if (err.message.includes('Invalid or unexpected token')) {
           return; // Ignore syntax errors with invalid tokens
+        }
+        if (err.message.includes('Failed to fetch')) {
+          return; // Ignore network fetch errors
+        }
+        if (err.message.includes('TypeError') && err.message.includes('fetch')) {
+          return; // Ignore fetch-related type errors
         }
         if (this.handleChromePropertyError(err, `Runtime error [${proxyGeo}]`)) return;
         this.logger.error(`Runtime error [${proxyGeo}]: ${err}`);
@@ -390,6 +416,14 @@ export class PuppeteerService implements OnModuleDestroy {
           '--disable-renderer-backgrounding',
           '--disable-features=TranslateUI',
           '--disable-ipc-flooding-protection',
+          '--disable-vulkan',
+          '--disable-gpu-sandbox',
+          '--disable-software-rasterizer',
+          '--disable-gl-drawing-for-tests',
+          '--disable-egl',
+          '--disable-angle',
+          '--disable-webgl',
+          '--disable-webgl2',
         ],
         slowMo: 0,
         defaultViewport: null,
@@ -410,6 +444,13 @@ export class PuppeteerService implements OnModuleDestroy {
     });
 
     browser.on('error', (err: Error) => {
+      if (err.message.includes('vkCreateInstance') || 
+          err.message.includes('VK_ERROR_INCOMPATIBLE_DRIVER') ||
+          err.message.includes('eglChooseConfig') ||
+          err.message.includes('BackendType::OpenGLES')) {
+        this.logger.debug(`[createBrowser] Graphics warning: ${err.message}`);
+        return;
+      }
       if (this.handleChromePropertyError(err, 'Browser error')) return;
     });
 
