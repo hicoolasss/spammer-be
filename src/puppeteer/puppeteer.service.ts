@@ -601,8 +601,38 @@ export class PuppeteerService implements OnModuleDestroy {
     for (const [geo, pool] of this.browserPool.entries()) {
       if (pool.length === 0) continue;
 
+      
       for (const wrapper of pool) {
         wrapper.pages = wrapper.pages.filter((page) => !page.isClosed());
+      }
+
+      const browsersToRemove: BrowserWrapper[] = [];
+      for (const wrapper of pool) {
+        if (wrapper.pages.length === 0) {
+          this.logger.info(`[cleanupPoolIssues] 🗑️ ${geo}: Закрываю пустой браузер`);
+          try {
+            await wrapper.context.close().catch(() => {});
+            await wrapper.browser.close().catch(() => {});
+            browsersToRemove.push(wrapper);
+          } catch (error) {
+            this.logger.error(
+              `[cleanupPoolIssues] Ошибка закрытия браузера для ${geo}: ${error.message}`,
+            );
+          }
+        }
+      }
+
+      
+      for (const wrapper of browsersToRemove) {
+        const index = pool.indexOf(wrapper);
+        if (index > -1) {
+          pool.splice(index, 1);
+        }
+      }
+
+      if (pool.length === 0) {
+        this.browserPool.delete(geo);
+        this.logger.info(`[cleanupPoolIssues] 🗑️ ${geo}: Удаляю пустой гео из пула`);
       }
 
       const totalTabs = pool.reduce((sum, w) => sum + w.pages.length, 0);
@@ -610,7 +640,7 @@ export class PuppeteerService implements OnModuleDestroy {
 
       if (
         pool.length < this.MAX_BROWSERS_PER_GEO &&
-        avgTabsPerBrowser >= Math.floor(this.MAX_TABS_PER_BROWSER * 0.5)
+        avgTabsPerBrowser >= Math.floor(this.MAX_TABS_PER_BROWSER * 0.8)
       ) {
         this.logger.info(
           `[cleanupPoolIssues] 🚀 ${geo}: Создаю дополнительный браузер (среднее вкладок: ${avgTabsPerBrowser})`,
@@ -618,14 +648,75 @@ export class PuppeteerService implements OnModuleDestroy {
         try {
           const localeSettings = LOCALE_SETTINGS[geo] || LOCALE_SETTINGS.ALL;
           const { locale, timeZone } = localeSettings;
-          await this.getOrCreateBrowserForGeo(geo, locale, timeZone);
-        } catch (err) {
+          const browser = await this.createBrowser(locale, timeZone);
+          const context = await browser.createBrowserContext();
+
+          context.on('error', (err: Error) => {
+            if (this.handleChromePropertyError(err, 'Context error')) return;
+          });
+
+          const wrapper = { browser, context, pages: [] };
+          pool.push(wrapper);
+          this.logger.info(`[cleanupPoolIssues] ✅ ${geo}: Создан дополнительный браузер`);
+        } catch (error) {
           this.logger.error(
-            `[cleanupPoolIssues] Ошибка создания браузера для ${geo}: ${err.message}`,
+            `[cleanupPoolIssues] Ошибка создания браузера для ${geo}: ${error.message}`,
           );
         }
       }
     }
+
+    this.logger.info(`[cleanupPoolIssues] ✅ Очистка завершена`);
+  }
+
+  async forceCleanupEmptyBrowsers(): Promise<void> {
+    this.logger.info(`[forceCleanupEmptyBrowsers] 🗑️ Принудительная очистка пустых браузеров...`);
+
+    let totalClosed = 0;
+    let totalGeosCleaned = 0;
+
+    for (const [geo, pool] of this.browserPool.entries()) {
+      if (pool.length === 0) continue;
+
+      
+      for (const wrapper of pool) {
+        wrapper.pages = wrapper.pages.filter((page) => !page.isClosed());
+      }
+
+      const browsersToRemove: BrowserWrapper[] = [];
+      for (const wrapper of pool) {
+        if (wrapper.pages.length === 0) {
+          this.logger.info(`[forceCleanupEmptyBrowsers] 🗑️ ${geo}: Закрываю пустой браузер`);
+          try {
+            await wrapper.context.close().catch(() => {});
+            await wrapper.browser.close().catch(() => {});
+            browsersToRemove.push(wrapper);
+            totalClosed++;
+          } catch (error) {
+            this.logger.error(
+              `[forceCleanupEmptyBrowsers] Ошибка закрытия браузера для ${geo}: ${error.message}`,
+            );
+          }
+        }
+      }
+
+      for (const wrapper of browsersToRemove) {
+        const index = pool.indexOf(wrapper);
+        if (index > -1) {
+          pool.splice(index, 1);
+        }
+      }
+
+      if (pool.length === 0) {
+        this.browserPool.delete(geo);
+        this.logger.info(`[forceCleanupEmptyBrowsers] 🗑️ ${geo}: Удаляю пустой гео из пула`);
+        totalGeosCleaned++;
+      }
+    }
+
+    this.logger.info(
+      `[forceCleanupEmptyBrowsers] ✅ Очистка завершена: закрыто ${totalClosed} браузеров, очищено ${totalGeosCleaned} гео`,
+    );
   }
 
   async getPoolStatistics(): Promise<Record<string, any>> {
