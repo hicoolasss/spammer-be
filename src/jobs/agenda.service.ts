@@ -30,17 +30,21 @@ export class AgendaService implements OnModuleInit {
       agenda.define(
         'runTask',
         {
-          priority: JobPriority.high,
+          priority: JobPriority.normal,
           lockLifetime: FIVE_MIN,
         },
-        this.wrapJob('runTask', async (job: Job) => {
-          const { taskId } = job.attrs.data as { taskId: string };
+        this.wrapJob('runTask', async (job) => {
+          const { taskId } = job.attrs.data;
           if (!taskId) {
-            this.logger.error('runTask job: taskId is missing in job data');
+            this.logger.error('[AgendaService] No taskId provided in job data');
             return;
           }
           this.logger.info(`[AgendaService] 🚀 Executing runTask for taskId=${taskId} at ${new Date().toISOString()}`);
+          
+          // Прямое выполнение задачи с контролируемым параллелизмом
           await this.taskProcessorService.processTasks(taskId);
+          
+          // Перепланируем задачу для следующего выполнения
           const task = await this.taskModel.findById(taskId);
           if (task && task.status === TaskStatus.ACTIVE) {
             this.logger.info(`[AgendaService] 📅 Rescheduling task ${taskId} for next run`);
@@ -135,8 +139,7 @@ export class AgendaService implements OnModuleInit {
     const lastRun = task.lastRunAt ? new Date(task.lastRunAt) : null;
     let nextRun: Date;
     if (lastRun) {
-      // nextRun = new Date(lastRun.getTime() + (task.intervalMinutes || 1) * 60 * 1_000);
-      nextRun = new Date(lastRun.getTime() + 1 * 60 * 1_000); // TEST: RETURN - всегда 1 минута
+      nextRun = new Date(lastRun.getTime() + (task.intervalMinutes || 1) * 60 * 1_000);
     } else {
       nextRun = timeFrom;
     }
