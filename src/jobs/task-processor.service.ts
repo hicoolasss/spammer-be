@@ -45,11 +45,17 @@ export class TaskProcessorService {
 
       this.logger.info(`[TASK_PROCESSOR] Found ${activeTasks.length} active tasks to process`);
 
-      for (const task of activeTasks) {
-        void this.processTasks(task._id.toString()).catch((e) => {
+      const taskPromises = activeTasks.map((task) =>
+        this.processTasks(task._id.toString()).catch((e) => {
           this.logger.error(`[TASK_${task._id}] Error processing task: ${e.message}`);
-        });
-      }
+        })
+      );
+
+      this.logger.info(`[TASK_PROCESSOR] 🚀 Starting ${taskPromises.length} tasks in parallel`);
+      
+      await Promise.allSettled(taskPromises);
+      
+      this.logger.info(`[TASK_PROCESSOR] ✅ All tasks completed`);
     } catch (error) {
       this.logger.error(`[TASK_PROCESSOR] Error processing active tasks: ${error.message}`, error);
     }
@@ -57,6 +63,8 @@ export class TaskProcessorService {
 
   async processTasks(taskId: string): Promise<void> {
     try {
+      this.logger.info(`[TASK_${taskId}] 🚀 Starting task processing...`);
+      
       const task = await this.taskModel.findById(taskId).exec();
 
       if (!task) {
@@ -68,6 +76,8 @@ export class TaskProcessorService {
         this.logger.warn(`[TASK_${taskId}] Task is already running, skipping`);
         return;
       }
+
+      this.logger.info(`[TASK_${taskId}] ✅ Task acquired, starting execution...`);
 
       task.isRunning = true;
       await task.save();

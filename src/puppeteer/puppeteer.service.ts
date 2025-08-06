@@ -174,6 +174,18 @@ export class PuppeteerService implements OnModuleDestroy {
       `[acquirePage] geo=${proxyGeo} | pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO}, MAX_TABS=${this.MAX_TABS_PER_BROWSER}`,
     );
 
+    const totalTabs = pool.reduce((sum, w) => sum + w.pages.length, 0);
+    const avgTabsPerBrowser = pool.length > 0 ? Math.round(totalTabs / pool.length) : 0;
+    this.logger.info(
+      `[acquirePage] geo=${proxyGeo} | Диагностика: браузеров=${pool.length}, всего вкладок=${totalTabs}, среднее=${avgTabsPerBrowser}/браузер`,
+    );
+
+    pool.forEach((wrapper, index) => {
+      this.logger.info(
+        `[acquirePage] geo=${proxyGeo} | Браузер #${index + 1}: ${wrapper.pages.length}/${this.MAX_TABS_PER_BROWSER} вкладок, подключен: ${wrapper.browser.isConnected()}`,
+      );
+    });
+
     for (const wrapper of pool) {
       wrapper.pages = wrapper.pages.filter((page) => !page.isClosed());
     }
@@ -192,8 +204,8 @@ export class PuppeteerService implements OnModuleDestroy {
     }
 
     if (pool.length < this.MAX_BROWSERS_PER_GEO) {
-      this.logger.debug(
-        `[acquirePage] geo=${proxyGeo} | Создаю новый браузер, pool.length=${pool.length} < ${this.MAX_BROWSERS_PER_GEO}`,
+      this.logger.info(
+        `[acquirePage] geo=${proxyGeo} | 🚀 Создаю новый браузер! pool.length=${pool.length} < ${this.MAX_BROWSERS_PER_GEO}`,
       );
       if (!this.browserCreationLocks.has(proxyGeo)) {
         const lockPromise = new Promise<void>((resolve) => {
@@ -686,8 +698,8 @@ export class PuppeteerService implements OnModuleDestroy {
     );
 
     if (pool.length < this.MAX_BROWSERS_PER_GEO) {
-      this.logger.debug(
-        `[getOrCreateBrowserForGeo] geo=${countryCode} | Создаю новый браузер, pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO}`,
+      this.logger.info(
+        `[getOrCreateBrowserForGeo] geo=${countryCode} | 🚀 Создаю новый браузер! pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO}`,
       );
 
       const browser = await this.createBrowser(locale, timeZone);
