@@ -184,23 +184,46 @@ export class PuppeteerService implements OnModuleDestroy {
       wrapper.pages = wrapper.pages.filter((page) => !page.isClosed());
     }
 
+    // Очищаем пустые браузеры если их больше 1
+    if (pool.length > 1) {
+      const emptyBrowsers = pool.filter((w) => w.pages.length === 0);
+      if (emptyBrowsers.length > 0) {
+        this.logger.info(`[acquirePage] geo=${proxyGeo} | 🗑️ Найдено ${emptyBrowsers.length} пустых браузеров, закрываю их`);
+        for (const emptyBrowser of emptyBrowsers) {
+          try {
+            await emptyBrowser.context.close().catch(() => {});
+            await emptyBrowser.browser.close().catch(() => {});
+          } catch (error) {
+            this.logger.error(`[acquirePage] geo=${proxyGeo} | Ошибка закрытия пустого браузера: ${error.message}`);
+          }
+        }
+        // Удаляем пустые браузеры из пула
+        const index = pool.indexOf(emptyBrowsers[0]);
+        if (index > -1) {
+          pool.splice(index, 1);
+        }
+      }
+    }
+
     let shouldCreateNewBrowser = false;
 
     if (pool.length === 0) {
       shouldCreateNewBrowser = true;
       this.logger.info(`[acquirePage] geo=${proxyGeo} | 🚀 Создаю первый браузер!`);
-    } else if (pool.every((w) => w.pages.length >= Math.floor(this.MAX_TABS_PER_BROWSER * 0.7))) {
+    } else if (pool.every((w) => w.pages.length >= this.MAX_TABS_PER_BROWSER)) {
+      // Создаем новый браузер только если ВСЕ браузеры полностью заполнены
       shouldCreateNewBrowser = true;
       this.logger.info(
-        `[acquirePage] geo=${proxyGeo} | 🚀 Все браузеры заполнены на 70%+, создаю новый!`,
+        `[acquirePage] geo=${proxyGeo} | 🚀 Все браузеры полностью заполнены (${this.MAX_TABS_PER_BROWSER} вкладок), создаю новый!`,
       );
     } else if (
-      avgTabsPerBrowser >= Math.floor(this.MAX_TABS_PER_BROWSER * 0.6) &&
-      pool.length < this.MAX_BROWSERS_PER_GEO
+      pool.length < this.MAX_BROWSERS_PER_GEO &&
+      totalTabs >= pool.length * this.MAX_TABS_PER_BROWSER * 0.8
     ) {
+      // Создаем новый браузер только если общая загрузка пула >= 80%
       shouldCreateNewBrowser = true;
       this.logger.info(
-        `[acquirePage] geo=${proxyGeo} | 🚀 Среднее вкладок ${avgTabsPerBrowser} >= ${Math.floor(this.MAX_TABS_PER_BROWSER * 0.6)}, создаю новый браузер!`,
+        `[acquirePage] geo=${proxyGeo} | 🚀 Общая загрузка пула ${Math.round((totalTabs / (pool.length * this.MAX_TABS_PER_BROWSER)) * 100)}% >= 80%, создаю новый браузер!`,
       );
     }
 
@@ -247,8 +270,15 @@ export class PuppeteerService implements OnModuleDestroy {
       }
     }
 
-    const getBrowserWithFreeSlot = () =>
-      pool.find((w) => w.pages.length < this.MAX_TABS_PER_BROWSER);
+    const getBrowserWithFreeSlot = () => {
+      // Сначала ищем браузер с наименьшим количеством вкладок
+      const sortedBrowsers = pool
+        .filter((w) => w.pages.length < this.MAX_TABS_PER_BROWSER)
+        .sort((a, b) => a.pages.length - b.pages.length);
+      
+      return sortedBrowsers[0] || null;
+    };
+    
     let wrapper = getBrowserWithFreeSlot();
 
     if (wrapper) {
@@ -717,6 +747,29 @@ export class PuppeteerService implements OnModuleDestroy {
     this.logger.info(
       `[forceCleanupEmptyBrowsers] ✅ Очистка завершена: закрыто ${totalClosed} браузеров, очищено ${totalGeosCleaned} гео`,
     );
+  }
+
+  async forceReleasePagesForGeo(geo: CountryCode): Promise<void> {
+    this.logger.info(`[forceReleasePagesForGeo] 🗑️ Принудительно освобождаю страницы для ${geo}`);
+    
+    const pool = this.browserPool.get(geo) || [];
+    let closedPages = 0;
+    
+    for (const wrapper of pool) {
+      for (const page of wrapper.pages) {
+        if (!page.isClosed()) {
+          try {
+            this.logger.info(`[forceReleasePagesForGeo] Закрываю страницу для ${geo}`);
+            await page.close().catch(() => {});
+            closedPages++;
+          } catch (error) {
+            this.logger.error(`[forceReleasePagesForGeo] Ошибка закрытия страницы: ${error.message}`);
+          }
+        }
+      }
+    }
+    
+    this.logger.info(`[forceReleasePagesForGeo] ✅ Закрыто ${closedPages} страниц для ${geo}`);
   }
 
   async getPoolStatistics(): Promise<Record<string, any>> {

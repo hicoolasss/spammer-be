@@ -144,26 +144,17 @@ export class TaskProcessorService {
 
       try {
         await this.processTask(task);
+        this.logger.info(`[TASK_${taskId}] ✅ Task completed successfully`);
+      } catch (error) {
+        this.logger.error(`[TASK_${taskId}] ❌ Task failed: ${error.message}`);
+        // Не выбрасываем ошибку - задача остается в Agenda для повторного выполнения
       } finally {
-        try {
-          task.isRunning = false;
-          await task.save();
-        } catch (saveError) {
-          this.logger.error(
-            `[TASK_${taskId}] Failed to reset isRunning flag: ${saveError.message}`,
-          );
-          await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
-        }
+        task.isRunning = false;
+        await task.save();
+        this.logger.info(`[TASK_${taskId}] 🔓 Task lock released`);
       }
     } catch (error) {
-      this.logger.error(`[TASK_${taskId}] Error processing task: ${error.message}`, error);
-      try {
-        await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
-      } catch (resetError) {
-        this.logger.error(
-          `[TASK_${taskId}] Failed to reset isRunning after error: ${resetError.message}`,
-        );
-      }
+      this.logger.error(`[TASK_${taskId}] Error in processTasks: ${error.message}`, error);
     }
   }
 
@@ -223,15 +214,12 @@ export class TaskProcessorService {
       }
 
       this.logger.info(`[TASK_${taskId}] Processing lead: ${JSON.stringify(leadData)}`);
-      const TIMEOUT_MS = 11 * 60 * 1_000;
       this.logger.debug(
         `[TASK_${taskId}] Calling runPuppeteerTask with geo=${geo}, userAgent=${userAgent}, url=${finalUrl}`,
       );
-      await withTimeout(
-        this.runPuppeteerTask(task, finalUrl, leadData, userAgent),
-        TIMEOUT_MS,
-        () => this.logger.error(`[TASK_${taskId}] Task timed out, closing slot`),
-      );
+      
+      // Убираем таймаут - задачи должны выполняться через Agenda
+      await this.runPuppeteerTask(task, finalUrl, leadData, userAgent);
 
       await this.taskModel.findByIdAndUpdate(_id, { lastRunAt: new Date() });
       this.logger.info(`[TASK_${taskId}] Task completed. Updated lastRunAt.`);
