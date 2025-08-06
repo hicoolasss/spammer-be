@@ -376,7 +376,8 @@ export class TaskProcessorService {
         this.logger.warn(`[TASK_${taskId}] Fetch error: ${error.message}`);
       } else if (
         error.message.includes('Navigation timeout') ||
-        error.message.includes('Navigation failed')
+        error.message.includes('Navigation failed') ||
+        error.message.includes('Navigation timeout after form submission')
       ) {
         this.logger.warn(`[TASK_${taskId}] Navigation error: ${error.message}`);
       } else {
@@ -443,6 +444,8 @@ export class TaskProcessorService {
     } catch (e) {
       if (
         e.message.includes('Navigation timeout') ||
+        e.message.includes('Navigation failed') ||
+        e.message.includes('Navigation timeout after form submission') ||
         e.message.includes('net::ERR_') ||
         e.message.includes('ERR_TUNNEL_CONNECTION_FAILED')
       ) {
@@ -489,6 +492,8 @@ export class TaskProcessorService {
       }
       if (
         error.message.includes('Navigation timeout') ||
+        error.message.includes('Navigation failed') ||
+        error.message.includes('Navigation timeout after form submission') ||
         error.message.includes('net::ERR_') ||
         error.message.includes('ERR_TUNNEL_CONNECTION_FAILED')
       ) {
@@ -1244,47 +1249,13 @@ export class TaskProcessorService {
 
       await this.sleep(2_000 + Math.random() * 1_000);
 
-      let navigationDetected = false;
-      let afterSubmitUrl = beforeSubmitUrl;
-
-      try {
-        await page
-          .waitForNavigation({
-            waitUntil: 'domcontentloaded',
-            timeout: 5_000,
-          })
-          .then(() => {
-            navigationDetected = true;
-            afterSubmitUrl = page.url();
-            this.logger.info(`${taskPrefix} ✅ Navigation detected after form submission`);
-          })
-          .catch(() => {
-            this.logger.debug(`${taskPrefix} No immediate navigation detected, continuing...`);
-          });
-
-        await this.sleep(3_000);
-
-        const currentUrl = page.url();
-        if (currentUrl !== beforeSubmitUrl) {
-          navigationDetected = true;
-          afterSubmitUrl = currentUrl;
-          this.logger.info(`${taskPrefix} ✅ Delayed navigation detected: ${afterSubmitUrl}`);
-        }
-
-        // Check for success indicators on the page using multi-language support
-        if (geo) {
-          const successIndicators = await checkSuccessIndicators(page, geo);
-
-          if (successIndicators.hasSuccessIndicators) {
-            this.logger.info(
-              `${taskPrefix} ✅ Success indicators found for geo ${geo}: ${successIndicators.indicators.join(', ')}`,
-            );
-            navigationDetected = true;
-          }
-        }
-      } catch (error) {
-        this.logger.warn(`${taskPrefix} Error during navigation detection: ${error.message}`);
-      }
+      const navigationResult = await this.waitForNavigationReliable(
+        page,
+        taskPrefix,
+        beforeSubmitUrl,
+        geo,
+      );
+      let { navigationDetected, afterUrl: afterSubmitUrl } = navigationResult;
 
       await this.sleep(45_000);
 
@@ -1318,5 +1289,66 @@ export class TaskProcessorService {
 
   private async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async waitForNavigationReliable(
+    page: Page,
+    taskPrefix: string,
+    beforeUrl: string,
+    geo?: CountryCode,
+  ): Promise<{ navigationDetected: boolean; afterUrl: string }> {
+    let navigationDetected = false;
+    let afterUrl = beforeUrl;
+
+    try {
+      await page.waitForNavigation({
+        waitUntil: 'domcontentloaded',
+        timeout: 3_000,
+      });
+      navigationDetected = true;
+      afterUrl = page.url();
+      this.logger.info(`${taskPrefix} ✅ Immediate navigation detected: ${afterUrl}`);
+      return { navigationDetected, afterUrl };
+    } catch {
+      this.logger.debug(`${taskPrefix} No immediate navigation, trying alternative methods...`);
+    }
+
+    await this.sleep(2_000);
+    const currentUrl = page.url();
+    if (currentUrl !== beforeUrl) {
+      navigationDetected = true;
+      afterUrl = currentUrl;
+      this.logger.info(`${taskPrefix} ✅ Delayed URL change detected: ${afterUrl}`);
+      return { navigationDetected, afterUrl };
+    }
+
+    if (geo) {
+      try {
+        const successIndicators = await checkSuccessIndicators(page, geo);
+        if (successIndicators.hasSuccessIndicators) {
+          this.logger.info(
+            `${taskPrefix} ✅ Success indicators found for geo ${geo}: ${successIndicators.indicators.join(', ')}`,
+          );
+          navigationDetected = true;
+          return { navigationDetected, afterUrl };
+        }
+      } catch (indicatorError) {
+        this.logger.debug(
+          `${taskPrefix} Error checking success indicators: ${indicatorError.message}`,
+        );
+      }
+    }
+
+    await this.sleep(3_000);
+    const finalUrl = page.url();
+    if (finalUrl !== beforeUrl) {
+      navigationDetected = true;
+      afterUrl = finalUrl;
+      this.logger.info(`${taskPrefix} ✅ Final URL change detected: ${afterUrl}`);
+      return { navigationDetected, afterUrl };
+    }
+
+    this.logger.info(`${taskPrefix} ℹ️ No navigation detected, but form submission completed`);
+    return { navigationDetected: false, afterUrl };
   }
 }
