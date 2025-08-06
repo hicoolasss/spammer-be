@@ -18,8 +18,8 @@ export class PuppeteerService implements OnModuleDestroy {
   private readonly MAX_TABS_PER_BROWSER: number;
 
   constructor() {
-    this.MAX_BROWSERS_PER_GEO = Number(process.env.MAX_BROWSERS_PER_GEO) || 3;
-    this.MAX_TABS_PER_BROWSER = Number(process.env.MAX_TABS_PER_BROWSER) || 20;
+    this.MAX_BROWSERS_PER_GEO = Number(process.env.MAX_BROWSERS_PER_GEO) || 10;
+    this.MAX_TABS_PER_BROWSER = Number(process.env.MAX_TABS_PER_BROWSER) || 10;
 
     this.logger.info(
       `[PuppeteerService] Environment variables: MAX_BROWSERS_PER_GEO=${process.env.MAX_BROWSERS_PER_GEO}, MAX_TABS_PER_BROWSER=${process.env.MAX_TABS_PER_BROWSER}`,
@@ -203,9 +203,14 @@ export class PuppeteerService implements OnModuleDestroy {
       return page;
     }
 
-    if (pool.length < this.MAX_BROWSERS_PER_GEO) {
+    const shouldCreateNewBrowser =
+      pool.length < this.MAX_BROWSERS_PER_GEO &&
+      (pool.length === 0 ||
+        pool.every((w) => w.pages.length >= Math.floor(this.MAX_TABS_PER_BROWSER * 0.8)));
+
+    if (shouldCreateNewBrowser) {
       this.logger.info(
-        `[acquirePage] geo=${proxyGeo} | 🚀 Создаю новый браузер! pool.length=${pool.length} < ${this.MAX_BROWSERS_PER_GEO}`,
+        `[acquirePage] geo=${proxyGeo} | 🚀 Создаю новый браузер! pool.length=${pool.length} < ${this.MAX_BROWSERS_PER_GEO} (все браузеры заполнены на 80%+)`,
       );
       if (!this.browserCreationLocks.has(proxyGeo)) {
         const lockPromise = new Promise<void>((resolve) => {
@@ -271,8 +276,29 @@ export class PuppeteerService implements OnModuleDestroy {
           logAllGeoPoolsTable(this.browserPool);
           return page;
         } catch (err) {
-          this.logger.error(`[acquirePage] geo=${proxyGeo} | Ошибка создания дополнительного браузера: ${err.message}`);
+          this.logger.error(
+            `[acquirePage] geo=${proxyGeo} | Ошибка создания дополнительного браузера: ${err.message}`,
+          );
         }
+      }
+    }
+
+    if (
+      wrapper.pages.length >= Math.floor(this.MAX_TABS_PER_BROWSER * 0.9) &&
+      pool.length < this.MAX_BROWSERS_PER_GEO
+    ) {
+      this.logger.info(
+        `[acquirePage] geo=${proxyGeo} | Браузер заполнен на 90% (${wrapper.pages.length}/${this.MAX_TABS_PER_BROWSER}), создаю новый браузер`,
+      );
+      try {
+        const newWrapper = await this.getOrCreateBrowserForGeo(proxyGeo, locale, timeZone);
+        const page = await this._openPage(newWrapper, userAgent, locale, timeZone, proxyGeo);
+        logAllGeoPoolsTable(this.browserPool);
+        return page;
+      } catch (err) {
+        this.logger.error(
+          `[acquirePage] geo=${proxyGeo} | Ошибка создания нового браузера: ${err.message}`,
+        );
       }
     }
 
@@ -280,6 +306,13 @@ export class PuppeteerService implements OnModuleDestroy {
     this.logger.info(
       `[acquirePage] geo=${proxyGeo} | ✅ Вкладка создана! Теперь браузеров=${pool.length}, всего вкладок=${pool.reduce((sum, w) => sum + w.pages.length, 0)}`,
     );
+
+    const totalTabsAfter = pool.reduce((sum, w) => sum + w.pages.length, 0);
+    const avgTabsPerBrowserAfter = pool.length > 0 ? Math.round(totalTabsAfter / pool.length) : 0;
+    this.logger.info(
+      `[acquirePage] geo=${proxyGeo} | 📊 Состояние пула после создания вкладки: браузеров=${pool.length}, всего вкладок=${totalTabsAfter}, среднее=${avgTabsPerBrowserAfter}/браузер`,
+    );
+
     logAllGeoPoolsTable(this.browserPool);
     return page;
   }
@@ -512,95 +545,65 @@ export class PuppeteerService implements OnModuleDestroy {
   }
 
   async diagnosePoolIssues(): Promise<void> {
-    this.logger.info('🔍 Starting pool diagnosis...');
+    this.logger.info(`[diagnosePoolIssues] 🔍 Диагностика пулов браузеров...`);
 
     for (const [geo, pool] of this.browserPool.entries()) {
-      this.logger.info(`\n[DIAGNOSIS] Geo: ${geo}`);
-      this.logger.info(`[DIAGNOSIS] Total browsers: ${pool.length}`);
+      if (pool.length === 0) continue;
 
-      let totalTabs = 0;
-      let closedTabs = 0;
-      let orphanedTabs = 0;
+      const totalTabs = pool.reduce((sum, w) => sum + w.pages.length, 0);
+      const avgTabsPerBrowser = Math.round(totalTabs / pool.length);
+      const utilization = Math.round((totalTabs / (pool.length * this.MAX_TABS_PER_BROWSER)) * 100);
 
-      for (const [browserIndex, wrapper] of pool.entries()) {
-        const browserTime = browserOpenTimes.get(wrapper.browser);
-        const browserAge = browserTime ? Date.now() - browserTime : 'unknown';
-
-        this.logger.info(`[DIAGNOSIS] Browser #${browserIndex + 1}:`);
-        this.logger.info(`  - Connected: ${wrapper.browser.isConnected()}`);
-        this.logger.info(`  - Age: ${browserAge}ms`);
-        this.logger.info(`  - Tabs: ${wrapper.pages.length}/${this.MAX_TABS_PER_BROWSER}`);
-
-        totalTabs += wrapper.pages.length;
-
-        for (const [tabIndex, page] of wrapper.pages.entries()) {
-          const pageTime = pageOpenTimes.get(page);
-          const pageAge = pageTime ? Date.now() - pageTime : 'unknown';
-          const isClosed = page.isClosed();
-
-          if (isClosed) closedTabs++;
-          if (!pageTime) orphanedTabs++;
-
-          this.logger.info(
-            `  - Tab #${tabIndex + 1}: ${isClosed ? 'CLOSED' : 'OPEN'}, Age: ${pageAge}ms, URL: ${page.url()}`,
-          );
-        }
-      }
-
-      this.logger.info(`[DIAGNOSIS] Summary for ${geo}:`);
-      this.logger.info(`  - Total tabs: ${totalTabs}`);
-      this.logger.info(`  - Closed tabs: ${closedTabs}`);
-      this.logger.info(`  - Orphaned tabs: ${orphanedTabs}`);
+      this.logger.info(`[diagnosePoolIssues] 📊 ${geo}:`);
+      this.logger.info(`  - Browsers: ${pool.length}/${this.MAX_BROWSERS_PER_GEO}`);
+      this.logger.info(`  - Tabs: ${totalTabs}/${pool.length * this.MAX_TABS_PER_BROWSER}`);
+      this.logger.info(`  - Average tabs per browser: ${avgTabsPerBrowser}`);
       this.logger.info(
-        `  - Utilization: ${totalTabs}/${pool.length * this.MAX_TABS_PER_BROWSER} (${Math.round((totalTabs / (pool.length * this.MAX_TABS_PER_BROWSER)) * 100)}%)`,
+        `  - Utilization: ${totalTabs}/${pool.length * this.MAX_TABS_PER_BROWSER} (${utilization}%)`,
       );
+
+      if (
+        pool.length < this.MAX_BROWSERS_PER_GEO &&
+        avgTabsPerBrowser >= Math.floor(this.MAX_TABS_PER_BROWSER * 0.7)
+      ) {
+        this.logger.info(
+          `[diagnosePoolIssues] ⚠️ ${geo}: Среднее количество вкладок ${avgTabsPerBrowser} >= ${Math.floor(this.MAX_TABS_PER_BROWSER * 0.7)}, рекомендуется создать новый браузер`,
+        );
+      }
     }
   }
 
   async cleanupPoolIssues(): Promise<void> {
-    this.logger.info('🧹 Starting pool cleanup...');
+    this.logger.info(`[cleanupPoolIssues] 🧹 Очистка проблемных пулов...`);
 
     for (const [geo, pool] of this.browserPool.entries()) {
-      this.logger.info(`[CLEANUP] Cleaning geo: ${geo}`);
+      if (pool.length === 0) continue;
 
       for (const wrapper of pool) {
-        const originalLength = wrapper.pages.length;
         wrapper.pages = wrapper.pages.filter((page) => !page.isClosed());
-        const removedCount = originalLength - wrapper.pages.length;
-
-        if (removedCount > 0) {
-          this.logger.info(`[CLEANUP] Removed ${removedCount} closed tabs from browser`);
-        }
       }
 
-      const originalPoolLength = pool.length;
-      const nonEmptyBrowsers = pool.filter((wrapper) => wrapper.pages.length > 0);
+      const totalTabs = pool.reduce((sum, w) => sum + w.pages.length, 0);
+      const avgTabsPerBrowser = Math.round(totalTabs / pool.length);
 
-      if (nonEmptyBrowsers.length < pool.length) {
+      if (
+        pool.length < this.MAX_BROWSERS_PER_GEO &&
+        avgTabsPerBrowser >= Math.floor(this.MAX_TABS_PER_BROWSER * 0.8)
+      ) {
         this.logger.info(
-          `[CLEANUP] Removing ${pool.length - nonEmptyBrowsers.length} empty browsers`,
+          `[cleanupPoolIssues] 🚀 ${geo}: Создаю дополнительный браузер (среднее вкладок: ${avgTabsPerBrowser})`,
         );
-
-        for (const wrapper of pool) {
-          if (wrapper.pages.length === 0) {
-            try {
-              await wrapper.context.close();
-              await wrapper.browser.close();
-            } catch (error) {
-              this.logger.warn(`[CLEANUP] Error closing empty browser: ${error.message}`);
-            }
-          }
+        try {
+          const localeSettings = LOCALE_SETTINGS[geo] || LOCALE_SETTINGS.ALL;
+          const { locale, timeZone } = localeSettings;
+          await this.getOrCreateBrowserForGeo(geo, locale, timeZone);
+        } catch (err) {
+          this.logger.error(
+            `[cleanupPoolIssues] Ошибка создания браузера для ${geo}: ${err.message}`,
+          );
         }
-
-        this.browserPool.set(geo, nonEmptyBrowsers);
       }
-
-      this.logger.info(
-        `[CLEANUP] Geo ${geo}: ${originalPoolLength} -> ${nonEmptyBrowsers.length} browsers`,
-      );
     }
-
-    this.logger.info('🧹 Pool cleanup completed');
   }
 
   private async createBrowser(locale: string, timeZone: string): Promise<Browser> {
@@ -697,9 +700,14 @@ export class PuppeteerService implements OnModuleDestroy {
       `[getOrCreateBrowserForGeo] geo=${countryCode} | pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO}, MAX_TABS=${this.MAX_TABS_PER_BROWSER}`,
     );
 
-    if (pool.length < this.MAX_BROWSERS_PER_GEO) {
+    const shouldCreateNewBrowser =
+      pool.length < this.MAX_BROWSERS_PER_GEO &&
+      (pool.length === 0 ||
+        pool.every((w) => w.pages.length >= Math.floor(this.MAX_TABS_PER_BROWSER * 0.8)));
+
+    if (shouldCreateNewBrowser) {
       this.logger.info(
-        `[getOrCreateBrowserForGeo] geo=${countryCode} | 🚀 Создаю новый браузер! pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO}`,
+        `[getOrCreateBrowserForGeo] geo=${countryCode} | 🚀 Создаю новый браузер! pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO} (все браузеры заполнены на 80%+)`,
       );
 
       const browser = await this.createBrowser(locale, timeZone);
