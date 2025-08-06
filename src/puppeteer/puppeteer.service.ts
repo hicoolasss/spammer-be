@@ -315,6 +315,7 @@ export class PuppeteerService implements OnModuleDestroy {
       });
 
       page.on('pageerror', (err) => {
+        // Игнорируем распространенные ошибки JavaScript на сайтах
         if (err.message.includes('setCookie is not defined')) {
           return;
         }
@@ -331,25 +332,53 @@ export class PuppeteerService implements OnModuleDestroy {
           return;
         }
         if (err.message.includes('Unexpected token')) {
-          return; // Ignore syntax errors with unexpected tokens
+          return;
         }
         if (err.message.includes('Unexpected identifier')) {
-          return; // Ignore syntax errors with unexpected identifiers
+          return;
         }
         if (err.message.includes('Unexpected end of input')) {
-          return; // Ignore syntax errors with unexpected end of input
+          return;
         }
         if (err.message.includes('Invalid or unexpected token')) {
-          return; // Ignore syntax errors with invalid tokens
+          return;
         }
         if (err.message.includes('Failed to fetch')) {
-          return; // Ignore network fetch errors
+          return;
         }
         if (err.message.includes('TypeError') && err.message.includes('fetch')) {
-          return; // Ignore fetch-related type errors
+          return;
         }
+        
+        // Новые фильтры для ошибок из логов
+        if (err.message.includes('Cannot read properties of undefined')) {
+          return;
+        }
+        if (err.message.includes('prototype')) {
+          return;
+        }
+        if (err.message.includes('masterstroke_ajax is not defined')) {
+          return;
+        }
+        if (err.message.includes('wp is not defined')) {
+          return;
+        }
+        if (err.message.includes('i18n')) {
+          return;
+        }
+        if (err.message.includes('hooks')) {
+          return;
+        }
+        if (err.message.includes('ReferenceError')) {
+          return;
+        }
+        if (err.message.includes('TypeError')) {
+          return;
+        }
+        
+        // Логируем только неожиданные ошибки
         if (this.handleChromePropertyError(err, `Runtime error [${proxyGeo}]`)) return;
-        this.logger.error(`Runtime error [${proxyGeo}]: ${err}`);
+        this.logger.warn(`Runtime error [${proxyGeo}]: ${err.message}`);
       });
     } catch (error) {
       this.logger.error(`[_openPage] geo=${proxyGeo} | Error setting up page: ${error.message}`);
@@ -578,9 +607,13 @@ export class PuppeteerService implements OnModuleDestroy {
         err.message.includes("Couldn't get proc eglChooseConfig") ||
         err.message.includes('Failed to fetch') ||
         err.message.includes('TypeError') ||
-        err.message.includes('net::ERR_')
+        err.message.includes('net::ERR_') ||
+        err.message.includes('Bind context provider failed') ||
+        err.message.includes('handshake failed') ||
+        err.message.includes('SSL error code') ||
+        err.message.includes('video_capture_service_impl')
       ) {
-        this.logger.debug(`[createBrowser] Graphics/Network warning: ${err.message}`);
+        this.logger.debug(`[createBrowser] System warning: ${err.message}`);
         return;
       }
       if (this.handleChromePropertyError(err, 'Browser error')) return;
