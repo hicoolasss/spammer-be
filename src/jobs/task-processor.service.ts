@@ -30,6 +30,11 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => void):
 @Injectable()
 export class TaskProcessorService {
   private readonly logger = new LogWrapper(TaskProcessorService.name);
+  private taskQueue: Array<{ taskId: string; priority: number }> = [];
+  private isProcessingQueue = false;
+  private readonly QUEUE_DELAY_MS = 2000;
+  private readonly MAX_CONCURRENT_TASKS = 3;
+  private activeTaskCount = 0;
 
   constructor(
     @InjectModel(Task.name) private taskModel: Model<Task>,
@@ -45,26 +50,81 @@ export class TaskProcessorService {
 
       this.logger.info(`[TASK_PROCESSOR] Found ${activeTasks.length} active tasks to process`);
 
-      const taskPromises = activeTasks.map((task) =>
-        this.processTasks(task._id.toString()).catch((e) => {
-          this.logger.error(`[TASK_${task._id}] Error processing task: ${e.message}`);
-        })
-      );
+      if (activeTasks.length === 0) {
+        this.logger.info(`[TASK_PROCESSOR] No active tasks found`);
+        return;
+      }
 
-      this.logger.info(`[TASK_PROCESSOR] 🚀 Starting ${taskPromises.length} tasks in parallel`);
-      
-      await Promise.allSettled(taskPromises);
-      
-      this.logger.info(`[TASK_PROCESSOR] ✅ All tasks completed`);
+      for (const task of activeTasks) {
+        this.addTaskToQueue(task._id.toString(), 1);
+      }
+
+      this.logger.info(`[TASK_PROCESSOR] 📋 Added ${activeTasks.length} tasks to queue`);
+
+      if (!this.isProcessingQueue) {
+        this.processQueue();
+      }
     } catch (error) {
       this.logger.error(`[TASK_PROCESSOR] Error processing active tasks: ${error.message}`, error);
+    }
+  }
+
+  private addTaskToQueue(taskId: string, priority: number): void {
+    this.taskQueue.push({ taskId, priority });
+    this.logger.debug(`[TASK_PROCESSOR] 📋 Added task ${taskId} to queue (priority: ${priority})`);
+  }
+
+  private async processQueue(): Promise<void> {
+    if (this.isProcessingQueue) {
+      this.logger.debug(`[TASK_PROCESSOR] Queue is already being processed`);
+      return;
+    }
+
+    this.isProcessingQueue = true;
+    this.logger.info(`[TASK_PROCESSOR] 🚀 Starting queue processing...`);
+
+    try {
+      while (this.taskQueue.length > 0 || this.activeTaskCount > 0) {
+        if (this.activeTaskCount < this.MAX_CONCURRENT_TASKS && this.taskQueue.length > 0) {
+          const taskItem = this.taskQueue.shift();
+          if (taskItem) {
+            this.activeTaskCount++;
+            this.logger.info(
+              `[TASK_PROCESSOR] 🚀 Starting task ${taskItem.taskId} (active: ${this.activeTaskCount}/${this.MAX_CONCURRENT_TASKS})`,
+            );
+
+            this.processTasks(taskItem.taskId)
+              .catch((e) => {
+                this.logger.error(`[TASK_${taskItem.taskId}] Error processing task: ${e.message}`);
+              })
+              .finally(() => {
+                this.activeTaskCount--;
+                this.logger.debug(
+                  `[TASK_PROCESSOR] ✅ Task ${taskItem.taskId} completed (active: ${this.activeTaskCount}/${this.MAX_CONCURRENT_TASKS})`,
+                );
+              });
+          }
+        }
+
+        await this.sleep(500);
+      }
+
+      this.logger.info(`[TASK_PROCESSOR] ✅ Queue processing completed`);
+    } catch (error) {
+      this.logger.error(`[TASK_PROCESSOR] Error in queue processing: ${error.message}`, error);
+    } finally {
+      this.isProcessingQueue = false;
     }
   }
 
   async processTasks(taskId: string): Promise<void> {
     try {
       this.logger.info(`[TASK_${taskId}] 🚀 Starting task processing...`);
-      
+
+      const delay = Math.floor(Math.random() * 2000) + 1000;
+      this.logger.debug(`[TASK_${taskId}] ⏳ Waiting ${delay}ms before starting...`);
+      await this.sleep(delay);
+
       const task = await this.taskModel.findById(taskId).exec();
 
       if (!task) {
@@ -1360,5 +1420,26 @@ export class TaskProcessorService {
 
     this.logger.info(`${taskPrefix} ℹ️ No navigation detected, but form submission completed`);
     return { navigationDetected: false, afterUrl };
+  }
+
+  async getQueueStatistics(): Promise<{
+    queueLength: number;
+    activeTaskCount: number;
+    maxConcurrentTasks: number;
+    isProcessing: boolean;
+  }> {
+    return {
+      queueLength: this.taskQueue.length,
+      activeTaskCount: this.activeTaskCount,
+      maxConcurrentTasks: this.MAX_CONCURRENT_TASKS,
+      isProcessing: this.isProcessingQueue,
+    };
+  }
+
+  async forceProcessQueue(): Promise<void> {
+    this.logger.info(`[TASK_PROCESSOR] 🔄 Force processing queue...`);
+    if (!this.isProcessingQueue) {
+      this.processQueue();
+    }
   }
 }
