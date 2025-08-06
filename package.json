@@ -12,6 +12,7 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/src/main",
+    "restart": "git fetch && git pull && pnpm i && pnpm run build && pm2 stop all && pm2 start all",
     "check-deps": "knip",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
