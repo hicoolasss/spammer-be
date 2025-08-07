@@ -45,15 +45,27 @@ export class Task {
   @Prop({ type: Boolean, default: false })
   isQuiz: boolean;
 
-  @Prop({ 
+  @Prop({
     type: {
       total: { type: Number, default: 0 },
-      success: { type: Object, default: {} }
+      success: { type: Object, default: {} },
+      failed: { type: Object, default: {} },
+      visitedUrls: { type: [String], default: [] },
+      finalUrls: { type: [String], default: [] },
+      lastExecution: {
+        timestamp: { type: Date },
+        finalUrl: { type: String },
+        success: { type: Boolean },
+        error: { type: String },
+      },
     },
-    default: { 
-      total: 0, 
-      success: {} 
-    }
+    default: {
+      total: 0,
+      success: {},
+      failed: {},
+      visitedUrls: [],
+      finalUrls: [],
+    },
   })
   result: TaskResult;
 

@@ -8,7 +8,7 @@ import { Job } from 'agenda';
 import { Model } from 'mongoose';
 
 import agenda from './agendaInstance';
-import { TaskProcessorService } from './task-processor.service';
+import { TaskProcessorService } from './task-processor/task-processor.service';
 
 @Injectable()
 export class AgendaService implements OnModuleInit {
@@ -39,12 +39,12 @@ export class AgendaService implements OnModuleInit {
             this.logger.error('[AgendaService] No taskId provided in job data');
             return;
           }
-          this.logger.info(`[AgendaService] 🚀 Executing runTask for taskId=${taskId} at ${new Date().toISOString()}`);
-          
-          // Прямое выполнение задачи с контролируемым параллелизмом
+          this.logger.info(
+            `[AgendaService] 🚀 Executing runTask for taskId=${taskId} at ${new Date().toISOString()}`,
+          );
+
           await this.taskProcessorService.processTasks(taskId);
-          
-          // Перепланируем задачу для следующего выполнения
+
           const task = await this.taskModel.findById(taskId);
           if (task && task.status === TaskStatus.ACTIVE) {
             this.logger.info(`[AgendaService] 📅 Rescheduling task ${taskId} for next run`);
@@ -98,8 +98,6 @@ export class AgendaService implements OnModuleInit {
       if (lockedJobs.length > 0) {
         await agenda.cancel({ name: 'runTask', lastRunAt: { $lt: fiveMinutesAgo } });
         this.logger.info(`Reset ${lockedJobs.length} locked agenda jobs on startup`);
-      } else {
-        this.logger.info('No locked agenda jobs found to reset');
       }
     } catch (error) {
       this.logger.error('Failed to reset locked agenda jobs:', error);
@@ -107,96 +105,52 @@ export class AgendaService implements OnModuleInit {
   }
 
   private wrapJob(name: string, handler: (job) => Promise<void>) {
-    return async (job) => {
-      await new JobWrapper(name, handler).execute(job);
+    return async (job: Job) => {
+      const jobWrapper = new JobWrapper(name, handler);
+      await jobWrapper.execute(job);
     };
   }
 
   async scheduleTaskJob(task: TaskDocument) {
-    const taskId = task._id;
-    await this.cancelTaskJob(taskId.toString());
-    if (task.status !== TaskStatus.ACTIVE) return;
     const nextRun = this.calculateNextRun(task);
-    if (!nextRun) return;
-    await agenda.schedule(nextRun, 'runTask', { taskId: taskId.toString() });
-    this.logger.info(`📅 Scheduled runTask for task ${taskId} at ${nextRun.toISOString()}`);
-    this.logger.info(`[AgendaService] Task ${taskId} scheduled for geo=${task.geo}, interval=${task.intervalMinutes}min`);
+    if (nextRun) {
+      await agenda.schedule(nextRun, 'runTask', { taskId: task._id.toString() });
+    }
   }
 
   async cancelTaskJob(taskId: string) {
-    const num = await agenda.cancel({ name: 'runTask', 'data.taskId': taskId });
-    this.logger.info(`Cancelled ${num} jobs for task ${taskId}`);
+    await agenda.cancel({ name: 'runTask', 'data.taskId': taskId });
   }
 
   calculateNextRun(task: Task): Date | null {
-    const now = new Date();
-    const [fromHour, fromMin] = task.timeFrom.split(':').map(Number);
-    const [toHour, toMin] = task.timeTo.split(':').map(Number);
-    const timeFrom = new Date(now);
-    timeFrom.setHours(fromHour, fromMin, 0, 0);
-    const timeTo = new Date(now);
-    timeTo.setHours(toHour, toMin, 0, 0);
-    const lastRun = task.lastRunAt ? new Date(task.lastRunAt) : null;
-    let nextRun: Date;
-    if (lastRun) {
-      nextRun = new Date(lastRun.getTime() + (task.intervalMinutes || 1) * 60 * 1_000);
-    } else {
-      nextRun = timeFrom;
-    }
-    if (nextRun >= timeFrom && nextRun <= timeTo && nextRun > now) {
-      return nextRun;
-    }
-    if (now > timeTo) {
-      const tomorrow = new Date(now);
-      tomorrow.setDate(now.getDate() + 1);
-      tomorrow.setHours(fromHour, fromMin, 0, 0);
-      return tomorrow;
+    if (task.status !== TaskStatus.ACTIVE) {
+      return null;
     }
 
-    if (nextRun <= now) {
-      const soon = new Date(now.getTime() + 1 * 60 * 1_000);
-      if (soon >= timeFrom && soon <= timeTo) return soon;
-      const tomorrow = new Date(now);
-      tomorrow.setDate(now.getDate() + 1);
-      tomorrow.setHours(fromHour, fromMin, 0, 0);
-      return tomorrow;
-    }
-    return null;
+    const now = new Date();
+    const lastRun = task.lastRunAt || new Date(0);
+    const intervalMs = (task.intervalMinutes || 1) * 60 * 1000;
+
+    const nextRun = new Date(lastRun.getTime() + intervalMs);
+    return nextRun > now ? nextRun : new Date(now.getTime() + intervalMs);
   }
 
   private async cleanupOldJobs(): Promise<void> {
     try {
-      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1_000);
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-      const failedJobs = await agenda.jobs({
-        name: 'runTask',
+      const oldJobs = await agenda.jobs({
         lastFinishedAt: { $lt: oneDayAgo },
-        failedAt: { $exists: true },
+        name: { $in: ['runTask', 'cleanupOldJobs'] },
       });
 
-      if (failedJobs.length > 0) {
+      if (oldJobs.length > 0) {
         await agenda.cancel({
-          name: 'runTask',
           lastFinishedAt: { $lt: oneDayAgo },
-          failedAt: { $exists: true },
+          name: { $in: ['runTask', 'cleanupOldJobs'] },
         });
-        this.logger.info(`Cleaned up ${failedJobs.length} old failed jobs`);
-      }
 
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1_000);
-      const completedJobs = await agenda.jobs({
-        name: 'runTask',
-        lastFinishedAt: { $lt: sevenDaysAgo },
-        failedAt: { $exists: false },
-      });
-
-      if (completedJobs.length > 0) {
-        await agenda.cancel({
-          name: 'runTask',
-          lastFinishedAt: { $lt: sevenDaysAgo },
-          failedAt: { $exists: false },
-        });
-        this.logger.info(`Cleaned up ${completedJobs.length} old completed jobs`);
+        this.logger.info(`Cleaned up ${oldJobs.length} old jobs`);
       }
     } catch (error) {
       this.logger.error('Failed to cleanup old jobs:', error);
@@ -205,9 +159,9 @@ export class AgendaService implements OnModuleInit {
 
   private logTaskLockReset(modifiedCount: number): void {
     if (modifiedCount > 0) {
-      this.logger.info(`Reset ${modifiedCount} task locks on server startup`);
+      this.logger.info(`Reset ${modifiedCount} task locks on startup`);
     } else {
-      this.logger.info('No task locks found to reset');
+      this.logger.info('No task locks to reset on startup');
     }
   }
 }

@@ -2,17 +2,15 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Task, TaskSchema } from '@task/task.schema';
 
-import { AgendaService } from './agenda.service';
-import { TaskProcessorModule } from './task-processor/task-processor.module';
+import { TaskStatisticsService } from './task-statistics.service';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Task.name, schema: TaskSchema },
     ]),
-    TaskProcessorModule,
   ],
-  providers: [AgendaService],
-  exports: [AgendaService],
+  providers: [TaskStatisticsService],
+  exports: [TaskStatisticsService],
 })
-export class JobsModule {}
+export class TaskStatisticsModule {} 
