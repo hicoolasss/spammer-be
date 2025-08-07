@@ -12,6 +12,18 @@ import { browserOpenTimes, logAllGeoPoolsTable, pageOpenTimes } from 'src/utils/
 export class PuppeteerService implements OnModuleDestroy {
   private readonly logger = new LogWrapper(PuppeteerService.name);
   private browserPool = new Map<CountryCode, BrowserWrapper[]>();
+  private geoTaskQueues = new Map<
+    CountryCode,
+    Array<{
+      creativeId: string;
+      proxyGeo: CountryCode;
+      userAgent: string;
+      locale: string;
+      timeZone: string;
+      resolve: (value: Page) => void;
+      reject: (reason?: any) => void;
+    }>
+  >();
   private browserCreationLocks = new Map<CountryCode, Promise<void>>();
 
   private readonly MAX_BROWSERS_PER_GEO: number;
@@ -19,32 +31,11 @@ export class PuppeteerService implements OnModuleDestroy {
 
   constructor() {
     this.MAX_BROWSERS_PER_GEO = Number(process.env.MAX_BROWSERS_PER_GEO) || 10;
-    this.MAX_BROWSERS_PER_GEO = Number(process.env.MAX_BROWSERS_PER_GEO) || 10;
     this.MAX_TABS_PER_BROWSER = Number(process.env.MAX_TABS_PER_BROWSER) || 10;
 
     this.logger.info(
-      `[PuppeteerService] Environment variables: MAX_BROWSERS_PER_GEO=${process.env.MAX_BROWSERS_PER_GEO}, MAX_TABS_PER_BROWSER=${process.env.MAX_TABS_PER_BROWSER}`,
-    );
-    this.logger.info(
       `[PuppeteerService] Initialized with MAX_BROWSERS_PER_GEO=${this.MAX_BROWSERS_PER_GEO}, MAX_TABS_PER_BROWSER=${this.MAX_TABS_PER_BROWSER}`,
     );
-
-    const disableGpuWarnings = process.env.DISABLE_GPU_WARNINGS === 'true';
-    this.logger.info(`[PuppeteerService] GPU warnings disabled: ${disableGpuWarnings}`);
-
-    setInterval(
-      async () => {
-        try {
-          await this.cleanupPoolIssues();
-        } catch (error) {
-          this.logger.error(`[PuppeteerService] Error during periodic cleanup: ${error.message}`);
-        }
-      },
-      5 * 60 * 1000,
-    );
-
-    const logRuntimeErrors = process.env.LOG_RUNTIME_ERRORS === 'true';
-    this.logger.info(`[PuppeteerService] Runtime errors logging: ${logRuntimeErrors}`);
   }
 
   private sanitizeModuleScript(script: string): string {
@@ -53,7 +44,6 @@ export class PuppeteerService implements OnModuleDestroy {
 
   private handleChromePropertyError(err: Error, context: string): boolean {
     if (err.message.includes('Cannot redefine property: chrome')) {
-      return true;
       return true;
     }
     if (err.message.includes('Cannot redefine property')) {
@@ -106,7 +96,7 @@ export class PuppeteerService implements OnModuleDestroy {
     this.browserPool.clear();
   }
 
-  async acquirePage(proxyGeo: CountryCode, userAgent: string): Promise<Page> {
+  async acquirePage(creativeId: string, proxyGeo: CountryCode, userAgent: string): Promise<Page> {
     const localeSettings = LOCALE_SETTINGS[proxyGeo] || LOCALE_SETTINGS.ALL;
     const { locale, timeZone } = localeSettings;
     const pool = this.browserPool.get(proxyGeo) || [];
@@ -226,24 +216,23 @@ export class PuppeteerService implements OnModuleDestroy {
       }
     }
 
-    wrapper = pool.reduce((min, w) => (w.pages.length < min.pages.length ? w : min), pool[0]);
     this.logger.debug(
-      `[acquirePage] geo=${proxyGeo} | Использую браузер с наименьшим количеством вкладок: ${wrapper.pages.length}`,
+      `[acquirePage] geo=${proxyGeo} | Все браузеры заполнены и лимит достигнут, ставлю задачу в очередь`,
     );
-
-    const page = await this._openPage(wrapper, userAgent, locale, timeZone, proxyGeo);
-    this.logger.info(
-      `[acquirePage] geo=${proxyGeo} | ✅ Вкладка создана! Теперь браузеров=${pool.length}, всего вкладок=${pool.reduce((sum, w) => sum + w.pages.length, 0)}`,
-    );
-
-    const totalTabsAfter = pool.reduce((sum, w) => sum + w.pages.length, 0);
-    const avgTabsPerBrowserAfter = pool.length > 0 ? Math.round(totalTabsAfter / pool.length) : 0;
-    this.logger.info(
-      `[acquirePage] geo=${proxyGeo} | 📊 Состояние пула после создания вкладки: браузеров=${pool.length}, всего вкладок=${totalTabsAfter}, среднее=${avgTabsPerBrowserAfter}/браузер`,
-    );
-
-    logAllGeoPoolsTable(this.browserPool);
-    return page;
+    return new Promise<Page>((resolve, reject) => {
+      if (!this.geoTaskQueues.has(proxyGeo)) {
+        this.geoTaskQueues.set(proxyGeo, []);
+      }
+      this.geoTaskQueues.get(proxyGeo)!.push({
+        creativeId,
+        proxyGeo,
+        userAgent,
+        locale,
+        timeZone,
+        resolve,
+        reject,
+      });
+    });
   }
 
   private async _openPage(
@@ -251,12 +240,9 @@ export class PuppeteerService implements OnModuleDestroy {
     userAgent: string,
     locale: string,
     timeZone: string,
+    creativeId: string,
     proxyGeo: CountryCode,
   ): Promise<Page> {
-    this.logger.debug(
-      `[_openPage] geo=${proxyGeo} | Текущие вкладки: ${wrapper.pages.length}, лимит: ${this.MAX_TABS_PER_BROWSER}`,
-    );
-
     if (wrapper.pages.length >= this.MAX_TABS_PER_BROWSER) {
       this.logger.error(
         `[_openPage] geo=${proxyGeo} | Попытка открыть вкладку при переполнении: уже ${wrapper.pages.length} вкладок (лимит ${this.MAX_TABS_PER_BROWSER})`,
@@ -266,28 +252,10 @@ export class PuppeteerService implements OnModuleDestroy {
 
     const page = await wrapper.context.newPage();
     const pageOpenTime = Date.now();
-
     pageOpenTimes.set(page, pageOpenTime);
-    const storedTime = pageOpenTimes.get(page);
-
-    if (!storedTime) {
-      this.logger.error(`[_openPage] geo=${proxyGeo} | FAILED to store page time!`);
-    }
-
-    this.logger.debug(
-      `[_openPage] geo=${proxyGeo} | Вкладка создана, время: ${pageOpenTime}, сохранено: ${storedTime}, всего вкладок: ${wrapper.pages.length}`,
-    );
-
     wrapper.pages.push(page);
 
-    page.on('close', () => {
-      this.logger.debug(`[_openPage] geo=${proxyGeo} | Вкладка закрыта, удаляю из времени`);
-      pageOpenTimes.delete(page);
-    });
-
-    this.logger.debug(
-      `[_openPage] geo=${proxyGeo} | Вкладка создана, время: ${pageOpenTime}, всего вкладок: ${wrapper.pages.length}`,
-    );
+    this.logger.debug(`[_openPage] geo=${proxyGeo} | Вкладка создана, время: ${pageOpenTime}`);
 
     try {
       await page.authenticate({
@@ -298,55 +266,38 @@ export class PuppeteerService implements OnModuleDestroy {
       this.logger.error(`Error in page.authenticate: ${e.message}`);
     }
 
-    try {
-      await page.setUserAgent(userAgent);
-      const headers = HEADERS(locale, userAgent);
-      await page.setExtraHTTPHeaders(headers);
-      await page.emulateTimezone(timeZone);
+    await page.setUserAgent(userAgent);
+    const headers = HEADERS(locale, userAgent);
+    await page.setExtraHTTPHeaders(headers);
+    await page.emulateTimezone(timeZone);
 
-      const localeRaw = getBrowserSpoofScript(locale, timeZone);
-      const localeScript = this.sanitizeModuleScript(localeRaw);
+    const localeRaw = getBrowserSpoofScript(locale, timeZone);
+    const localeScript = this.sanitizeModuleScript(localeRaw);
 
-      await page.evaluateOnNewDocument(`(()=>{${localeScript}})();`);
+    await page.evaluateOnNewDocument(`(()=>{${localeScript}})();`);
 
-      const baseViewport = getRandomItem(MOBILE_VIEWPORTS);
-      const isLandscape = baseViewport.screenSize > 7 && Math.random() < 0.5;
+    const baseViewport = getRandomItem(MOBILE_VIEWPORTS);
+    const isLandscape = baseViewport.screenSize > 7 && Math.random() < 0.5;
 
-      await page.emulate({
-        viewport: {
-          width: isLandscape ? baseViewport.height : baseViewport.width,
-          height: isLandscape ? baseViewport.width : baseViewport.height,
-          deviceScaleFactor: baseViewport.deviceScaleFactor,
-          isMobile: true,
-          hasTouch: true,
-        },
-        userAgent,
-      });
-      await page.setRequestInterception(true);
+    await page.emulate({
+      viewport: {
+        width: isLandscape ? baseViewport.height : baseViewport.width,
+        height: isLandscape ? baseViewport.width : baseViewport.height,
+        deviceScaleFactor: baseViewport.deviceScaleFactor,
+        isMobile: true,
+        hasTouch: true,
+      },
+      userAgent,
+    });
+    await page.setRequestInterception(true);
 
-      page.on('request', async (req) => {
-        return req.continue();
-      });
+    page.on('request', async (req) => {
+      return req.continue();
+    });
 
-      page.on('error', (err) => {
-        if (err.message.includes('net::ERR_TUNNEL_CONNECTION_FAILED')) {
-          this.logger.warn(`[PuppeteerService] Network error [${proxyGeo}]: ${err.message}`);
-          return;
-        }
-        if (err.message.includes('net::ERR_')) {
-          this.logger.warn(`[PuppeteerService] Network error [${proxyGeo}]: ${err.message}`);
-          return;
-        }
-        if (err.message.includes('Failed to fetch')) {
-          this.logger.warn(`[PuppeteerService] Fetch error [${proxyGeo}]: ${err.message}`);
-          return;
-        }
-        if (err.message.includes('TypeError') && err.message.includes('fetch')) {
-          this.logger.warn(`[PuppeteerService] Fetch error [${proxyGeo}]: ${err.message}`);
-          return;
-        }
-        if (this.handleChromePropertyError(err, `Page error [${proxyGeo}]`)) return;
-      });
+    page.on('error', (err) => {
+      if (this.handleChromePropertyError(err, `Page error [${proxyGeo}]`)) return;
+    });
 
     page.on('pageerror', (err) => {
       if (err?.message?.includes('setCookie is not defined')) {
@@ -368,17 +319,9 @@ export class PuppeteerService implements OnModuleDestroy {
       if (idx === -1) continue;
 
       const pageOpenTime = pageOpenTimes.get(page);
-      const pageAge = pageOpenTime ? Date.now() - pageOpenTime : 'unknown';
       this.logger.debug(
-        `[releasePage] geo=${geo} | Закрываю вкладку, время жизни: ${pageAge}ms, всего вкладок в браузере: ${wrapper.pages.length}`,
+        `[releasePage] geo=${geo} | Закрываю вкладку, время жизни: ${pageOpenTime ? Date.now() - pageOpenTime : 'unknown'}ms`,
       );
-
-      if (!pageOpenTime) {
-        this.logger.warn(`[releasePage] geo=${geo} | ВНИМАНИЕ: Вкладка не имеет записи времени!`);
-        this.logger.debug(
-          `[releasePage] geo=${geo} | Page URL: ${page.url()}, isClosed: ${page.isClosed()}`,
-        );
-      }
 
       wrapper.pages.splice(idx, 1);
       pageOpenTimes.delete(page);
@@ -387,12 +330,7 @@ export class PuppeteerService implements OnModuleDestroy {
       page.removeAllListeners('request');
       await page.close().catch(() => {});
 
-      this.logger.debug(
-        `[releasePage] geo=${geo} | Вкладка закрыта, осталось вкладок: ${wrapper.pages.length}`,
-      );
-
       if (wrapper.pages.length === 0) {
-        this.logger.debug(`[releasePage] geo=${geo} | Браузер пуст, закрываю его`);
         await wrapper.context.close().catch(() => {});
         await wrapper.browser.close().catch(() => {});
         pool.splice(pool.indexOf(wrapper), 1);
@@ -404,272 +342,9 @@ export class PuppeteerService implements OnModuleDestroy {
 
       logAllGeoPoolsTable(this.browserPool);
 
+      this._drainGeoQueue(geo);
       return;
     }
-  }
-
-  async diagnosePoolIssues(): Promise<void> {
-    this.logger.info(`[diagnosePoolIssues] 🔍 Диагностика пулов браузеров...`);
-
-    for (const [geo, pool] of this.browserPool.entries()) {
-      if (pool.length === 0) continue;
-
-      const totalTabs = pool.reduce((sum, w) => sum + w.pages.length, 0);
-      const avgTabsPerBrowser = Math.round(totalTabs / pool.length);
-      const utilization = Math.round((totalTabs / (pool.length * this.MAX_TABS_PER_BROWSER)) * 100);
-
-      this.logger.info(`[diagnosePoolIssues] 📊 ${geo}:`);
-      this.logger.info(`  - Browsers: ${pool.length}/${this.MAX_BROWSERS_PER_GEO}`);
-      this.logger.info(`  - Tabs: ${totalTabs}/${pool.length * this.MAX_TABS_PER_BROWSER}`);
-      this.logger.info(`  - Average tabs per browser: ${avgTabsPerBrowser}`);
-      this.logger.info(
-        `  - Utilization: ${totalTabs}/${pool.length * this.MAX_TABS_PER_BROWSER} (${utilization}%)`,
-      );
-
-      if (
-        pool.length < this.MAX_BROWSERS_PER_GEO &&
-        avgTabsPerBrowser >= Math.floor(this.MAX_TABS_PER_BROWSER * 0.7)
-      ) {
-        this.logger.info(
-          `[diagnosePoolIssues] ⚠️ ${geo}: Среднее количество вкладок ${avgTabsPerBrowser} >= ${Math.floor(this.MAX_TABS_PER_BROWSER * 0.7)}, рекомендуется создать новый браузер`,
-        );
-      }
-    }
-  }
-
-  async forceCreateBrowsers(geo: CountryCode, count: number = 1): Promise<void> {
-    const pool = this.browserPool.get(geo) || [];
-    const localeSettings = LOCALE_SETTINGS[geo] || LOCALE_SETTINGS.ALL;
-    const { locale, timeZone } = localeSettings;
-
-    this.logger.info(`[forceCreateBrowsers] 🚀 Принудительно создаю ${count} браузеров для ${geo}`);
-
-    for (let i = 0; i < count; i++) {
-      if (pool.length >= this.MAX_BROWSERS_PER_GEO) {
-        this.logger.warn(`[forceCreateBrowsers] Достигнут лимит браузеров для ${geo}`);
-        break;
-      }
-
-      try {
-        const browser = await this.createBrowser(locale, timeZone);
-        const context = await browser.createBrowserContext();
-
-        context.on('error', (err: Error) => {
-          if (this.handleChromePropertyError(err, 'Context error')) return;
-        });
-
-        const wrapper = { browser, context, pages: [] };
-        pool.push(wrapper);
-        this.browserPool.set(geo, pool);
-
-        this.logger.info(`[forceCreateBrowsers] ✅ Создан браузер #${pool.length} для ${geo}`);
-      } catch (err) {
-        this.logger.error(
-          `[forceCreateBrowsers] Ошибка создания браузера для ${geo}: ${err.message}`,
-        );
-      }
-    }
-
-    logAllGeoPoolsTable(this.browserPool);
-  }
-
-  async cleanupPoolIssues(): Promise<void> {
-    this.logger.info(`[cleanupPoolIssues] 🧹 Очистка проблемных пулов...`);
-
-    for (const [geo, pool] of this.browserPool.entries()) {
-      if (pool.length === 0) continue;
-
-      
-      for (const wrapper of pool) {
-        wrapper.pages = wrapper.pages.filter((page) => !page.isClosed());
-      }
-
-      const browsersToRemove: BrowserWrapper[] = [];
-      for (const wrapper of pool) {
-        if (wrapper.pages.length === 0) {
-          this.logger.info(`[cleanupPoolIssues] 🗑️ ${geo}: Закрываю пустой браузер`);
-          try {
-            await wrapper.context.close().catch(() => {});
-            await wrapper.browser.close().catch(() => {});
-            browsersToRemove.push(wrapper);
-          } catch (error) {
-            this.logger.error(
-              `[cleanupPoolIssues] Ошибка закрытия браузера для ${geo}: ${error.message}`,
-            );
-          }
-        }
-      }
-
-      
-      for (const wrapper of browsersToRemove) {
-        const index = pool.indexOf(wrapper);
-        if (index > -1) {
-          pool.splice(index, 1);
-        }
-      }
-
-      if (pool.length === 0) {
-        this.browserPool.delete(geo);
-        this.logger.info(`[cleanupPoolIssues] 🗑️ ${geo}: Удаляю пустой гео из пула`);
-      }
-
-      const totalTabs = pool.reduce((sum, w) => sum + w.pages.length, 0);
-      const avgTabsPerBrowser = Math.round(totalTabs / pool.length);
-
-      if (
-        pool.length < this.MAX_BROWSERS_PER_GEO &&
-        avgTabsPerBrowser >= Math.floor(this.MAX_TABS_PER_BROWSER * 0.8)
-      ) {
-        this.logger.info(
-          `[cleanupPoolIssues] 🚀 ${geo}: Создаю дополнительный браузер (среднее вкладок: ${avgTabsPerBrowser})`,
-        );
-        try {
-          const localeSettings = LOCALE_SETTINGS[geo] || LOCALE_SETTINGS.ALL;
-          const { locale, timeZone } = localeSettings;
-          const browser = await this.createBrowser(locale, timeZone);
-          const context = await browser.createBrowserContext();
-
-          context.on('error', (err: Error) => {
-            if (this.handleChromePropertyError(err, 'Context error')) return;
-          });
-
-          const wrapper = { browser, context, pages: [] };
-          pool.push(wrapper);
-          this.logger.info(`[cleanupPoolIssues] ✅ ${geo}: Создан дополнительный браузер`);
-        } catch (error) {
-          this.logger.error(
-            `[cleanupPoolIssues] Ошибка создания браузера для ${geo}: ${error.message}`,
-          );
-        }
-      }
-    }
-
-    this.logger.info(`[cleanupPoolIssues] ✅ Очистка завершена`);
-  }
-
-  async forceCleanupEmptyBrowsers(): Promise<void> {
-    this.logger.info(`[forceCleanupEmptyBrowsers] 🗑️ Принудительная очистка пустых браузеров...`);
-
-    let totalClosed = 0;
-    let totalGeosCleaned = 0;
-
-    for (const [geo, pool] of this.browserPool.entries()) {
-      if (pool.length === 0) continue;
-
-      
-      for (const wrapper of pool) {
-        wrapper.pages = wrapper.pages.filter((page) => !page.isClosed());
-      }
-
-      const browsersToRemove: BrowserWrapper[] = [];
-      for (const wrapper of pool) {
-        if (wrapper.pages.length === 0) {
-          this.logger.info(`[forceCleanupEmptyBrowsers] 🗑️ ${geo}: Закрываю пустой браузер`);
-          try {
-            await wrapper.context.close().catch(() => {});
-            await wrapper.browser.close().catch(() => {});
-            browsersToRemove.push(wrapper);
-            totalClosed++;
-          } catch (error) {
-            this.logger.error(
-              `[forceCleanupEmptyBrowsers] Ошибка закрытия браузера для ${geo}: ${error.message}`,
-            );
-          }
-        }
-      }
-
-      for (const wrapper of browsersToRemove) {
-        const index = pool.indexOf(wrapper);
-        if (index > -1) {
-          pool.splice(index, 1);
-        }
-      }
-
-      if (pool.length === 0) {
-        this.browserPool.delete(geo);
-        this.logger.info(`[forceCleanupEmptyBrowsers] 🗑️ ${geo}: Удаляю пустой гео из пула`);
-        totalGeosCleaned++;
-      }
-    }
-
-    this.logger.info(
-      `[forceCleanupEmptyBrowsers] ✅ Очистка завершена: закрыто ${totalClosed} браузеров, очищено ${totalGeosCleaned} гео`,
-    );
-  }
-
-  async forceReleasePagesForGeo(geo: CountryCode): Promise<void> {
-    this.logger.info(`[forceReleasePagesForGeo] 🗑️ Принудительно освобождаю страницы для ${geo}`);
-    
-    const pool = this.browserPool.get(geo) || [];
-    let closedPages = 0;
-    
-    for (const wrapper of pool) {
-      for (const page of wrapper.pages) {
-        if (!page.isClosed()) {
-          try {
-            this.logger.info(`[forceReleasePagesForGeo] Закрываю страницу для ${geo}`);
-            await page.close().catch(() => {});
-            closedPages++;
-          } catch (error) {
-            this.logger.error(`[forceReleasePagesForGeo] Ошибка закрытия страницы: ${error.message}`);
-          }
-        }
-      }
-    }
-    
-    this.logger.info(`[forceReleasePagesForGeo] ✅ Закрыто ${closedPages} страниц для ${geo}`);
-  }
-
-  async getPoolStatistics(): Promise<Record<string, any>> {
-    const stats: Record<string, any> = {};
-
-    for (const [geo, pool] of this.browserPool.entries()) {
-      const totalTabs = pool.reduce((sum, w) => sum + w.pages.length, 0);
-      const avgTabsPerBrowser = pool.length > 0 ? Math.round(totalTabs / pool.length) : 0;
-      const utilization =
-        pool.length > 0
-          ? Math.round((totalTabs / (pool.length * this.MAX_TABS_PER_BROWSER)) * 100)
-          : 0;
-
-      stats[geo] = {
-        browsers: pool.length,
-        maxBrowsers: this.MAX_BROWSERS_PER_GEO,
-        totalTabs,
-        maxTabs: pool.length * this.MAX_TABS_PER_BROWSER,
-        avgTabsPerBrowser,
-        utilization: `${utilization}%`,
-        canCreateMore: pool.length < this.MAX_BROWSERS_PER_GEO,
-        shouldCreateMore: avgTabsPerBrowser >= Math.floor(this.MAX_TABS_PER_BROWSER * 0.6),
-      };
-    }
-
-    return stats;
-  }
-
-  async getDetailedPoolInfo(): Promise<Record<string, any>> {
-    const detailedInfo: Record<string, any> = {};
-
-    for (const [geo, pool] of this.browserPool.entries()) {
-      detailedInfo[geo] = {
-        browsers: pool.map((wrapper, index) => ({
-          id: index + 1,
-          tabs: wrapper.pages.length,
-          maxTabs: this.MAX_TABS_PER_BROWSER,
-          connected: wrapper.browser.isConnected(),
-          utilization: `${Math.round((wrapper.pages.length / this.MAX_TABS_PER_BROWSER) * 100)}%`,
-        })),
-        summary: {
-          totalBrowsers: pool.length,
-          totalTabs: pool.reduce((sum, w) => sum + w.pages.length, 0),
-          avgTabsPerBrowser:
-            pool.length > 0
-              ? Math.round(pool.reduce((sum, w) => sum + w.pages.length, 0) / pool.length)
-              : 0,
-        },
-      };
-    }
-
-    return detailedInfo;
   }
 
   private async createBrowser(locale: string, timeZone: string): Promise<Browser> {
@@ -695,28 +370,11 @@ export class PuppeteerService implements OnModuleDestroy {
           '--no-first-run',
           '--no-zygote',
           '--disable-gpu',
-          '--disable-gpu-sandbox',
-          '--disable-software-rasterizer',
-          '--disable-gl-drawing-for-tests',
-          '--disable-egl',
-          '--disable-angle',
-          '--disable-webgl',
-          '--disable-webgl2',
-          '--disable-vulkan',
-          '--disable-vulkan-fallback',
-          '--disable-gpu-compositing',
-          '--disable-gpu-rasterization',
-          '--disable-gpu-memory-buffer-video-frames',
-          '--disable-gpu-memory-buffer-compositor-resources',
-          '--disable-gpu-memory-buffer-video-capture',
-          '--disable-gpu-memory-buffer-2d-canvas',
           '--disable-background-timer-throttling',
           '--disable-backgrounding-occluded-windows',
           '--disable-renderer-backgrounding',
           '--disable-features=TranslateUI',
           '--disable-ipc-flooding-protection',
-          '--use-gl=swiftshader',
-          '--use-angle=swiftshader',
         ],
         slowMo: 0,
         defaultViewport: null,
@@ -737,19 +395,6 @@ export class PuppeteerService implements OnModuleDestroy {
     });
 
     browser.on('error', (err: Error) => {
-      if (
-        err.message.includes('vkCreateInstance') ||
-        err.message.includes('VK_ERROR_INCOMPATIBLE_DRIVER') ||
-        err.message.includes('eglChooseConfig') ||
-        err.message.includes('BackendType::OpenGLES') ||
-        err.message.includes("Couldn't get proc eglChooseConfig") ||
-        err.message.includes('Failed to fetch') ||
-        err.message.includes('TypeError') ||
-        err.message.includes('net::ERR_')
-      ) {
-        this.logger.debug(`[createBrowser] Graphics/Network warning: ${err.message}`);
-        return;
-      }
       if (this.handleChromePropertyError(err, 'Browser error')) return;
     });
 
@@ -767,8 +412,8 @@ export class PuppeteerService implements OnModuleDestroy {
     );
 
     if (pool.length < this.MAX_BROWSERS_PER_GEO) {
-      this.logger.info(
-        `[getOrCreateBrowserForGeo] geo=${countryCode} | 🚀 Создаю новый браузер! pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO}`,
+      this.logger.debug(
+        `[getOrCreateBrowserForGeo] geo=${countryCode} | Создаю новый браузер, pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO}`,
       );
 
       const browser = await this.createBrowser(locale, timeZone);
@@ -797,9 +442,9 @@ export class PuppeteerService implements OnModuleDestroy {
     }
 
     this.logger.debug(
-      `[getOrCreateBrowserForGeo] geo=${countryCode} | Достигнут лимит браузеров, возвращаю браузер с наименьшим количеством вкладок`,
+      `[getOrCreateBrowserForGeo] geo=${countryCode} | Не могу создать браузер, pool.length=${pool.length} >= ${this.MAX_BROWSERS_PER_GEO}`,
     );
-    const wrapper = pool.reduce((min, w) => (w.pages.length < min.pages.length ? w : min), pool[0]);
+    wrapper = pool.reduce((min, w) => (w.pages.length < min.pages.length ? w : min), pool[0]);
     return wrapper;
   }
 

@@ -4,12 +4,9 @@ import Table from 'cli-table3';
 import { Browser, Page } from 'puppeteer';
 
 import { LogWrapper } from './LogWrapper';
-import { LogWrapper } from './LogWrapper';
 
 export const browserOpenTimes = new WeakMap<Browser, number>();
 export const pageOpenTimes = new WeakMap<Page, number>();
-
-const logger = new LogWrapper('PuppeteerLogging');
 
 const logger = new LogWrapper('PuppeteerLogging');
 
