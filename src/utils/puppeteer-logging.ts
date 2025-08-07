@@ -3,8 +3,12 @@ import { BrowserWrapper } from '@types';
 import Table from 'cli-table3';
 import { Browser, Page } from 'puppeteer';
 
+import { LogWrapper } from './LogWrapper';
+
 export const browserOpenTimes = new WeakMap<Browser, number>();
 export const pageOpenTimes = new WeakMap<Page, number>();
+
+const logger = new LogWrapper('PuppeteerLogging');
 
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -31,7 +35,7 @@ export function logAllGeoPoolsTable(browserPool: Map<CountryCode, BrowserWrapper
       const tabAges = w.pages.map((p) => {
         const t = pageOpenTimes.get(p);
         if (!t) {
-          console.log(`[DEBUG] Page ${p.url()} has no time recorded`);
+          logger.info(`[DEBUG] Page ${p.url()} has no time recorded`);
           return '?';
         }
         return formatDuration(now - t);
@@ -40,7 +44,7 @@ export function logAllGeoPoolsTable(browserPool: Map<CountryCode, BrowserWrapper
       while (rowTabs.length < tabHeaders.length) rowTabs.push('-');
       table.push([`#${i + 1}`, w.pages.length, browserAge, ...rowTabs]);
     });
-    console.log(`\n[geo=${geo}] Browsers: ${pool.length}`);
-    console.log(table.toString());
+    logger.info(`\n[geo=${geo}] Browsers: ${pool.length}`);
+    logger.info(`\n${table.toString()}`);
   }
 }

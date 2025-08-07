@@ -13,6 +13,7 @@ import { Browser, Page } from 'puppeteer';
 import { AIService } from '../ai/ai.service';
 import { PuppeteerService } from '../puppeteer/puppeteer.service';
 import { RedisService } from '../redis/redis.service';
+import { calculateMaxConcurrentTasks } from '../utils/concurrency-limits';
 
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
   return Promise.race([
@@ -30,7 +31,7 @@ interface QueuedTask {
   taskId: string;
   resolve: (value: void) => void;
   reject: (reason?: any) => void;
-  priority: number; // Приоритет задачи (меньше = выше приоритет)
+  priority: number;
 }
 
 @Injectable()
@@ -38,7 +39,7 @@ export class TaskProcessorService {
   private readonly logger = new LogWrapper(TaskProcessorService.name);
   private taskQueue: QueuedTask[] = [];
   private isProcessing = false;
-  private readonly MAX_CONCURRENT_TASKS = 40;
+  private readonly MAX_CONCURRENT_TASKS: number;
   private currentRunningTasks = 0;
 
   constructor(
@@ -47,16 +48,16 @@ export class TaskProcessorService {
     private readonly puppeteerService: PuppeteerService,
     private readonly redisService: RedisService,
     private readonly aiService: AIService,
-  ) {}
+  ) {
+    this.MAX_CONCURRENT_TASKS = calculateMaxConcurrentTasks();
+  }
 
   async processTasks(taskId: string): Promise<void> {
     return new Promise<void>(async (resolve, reject) => {
-      // Проверяем, есть ли свободные слоты для выполнения
       if (this.currentRunningTasks < this.MAX_CONCURRENT_TASKS) {
-        // Есть свободные слоты - выполняем сразу
         this.logger.info(`[TASK_${taskId}] Free slot available, executing immediately`);
         this.currentRunningTasks++;
-        
+
         try {
           await this.executeTaskDirectly(taskId);
           resolve();
@@ -67,11 +68,9 @@ export class TaskProcessorService {
           this.logger.info(
             `[TASK_PROCESSOR] Task ${taskId} completed. Running: ${this.currentRunningTasks}, Queue: ${this.taskQueue.length}`,
           );
-          // После завершения задачи проверяем очередь
           this.processQueue();
         }
       } else {
-        // Нет свободных слотов - добавляем в очередь
         const queuedTask: QueuedTask = {
           taskId,
           resolve,
@@ -80,7 +79,9 @@ export class TaskProcessorService {
         };
 
         this.taskQueue.push(queuedTask);
-        this.logger.info(`[TASK_${taskId}] No free slots, added to queue. Queue length: ${this.taskQueue.length}`);
+        this.logger.info(
+          `[TASK_${taskId}] No free slots, added to queue. Queue length: ${this.taskQueue.length}`,
+        );
 
         this.taskQueue.sort((a, b) => a.priority - b.priority);
         this.processQueue();
@@ -104,7 +105,6 @@ export class TaskProcessorService {
         `[TASK_PROCESSOR] Starting task ${queuedTask.taskId}. Running: ${this.currentRunningTasks}, Queue: ${this.taskQueue.length}`,
       );
 
-      // Выполняем задачу в отдельном контексте
       this.executeTask(queuedTask).finally(() => {
         this.currentRunningTasks--;
         this.logger.info(
@@ -115,7 +115,6 @@ export class TaskProcessorService {
 
     this.isProcessing = false;
 
-    // Если в очереди еще есть задачи, продолжаем обработку
     if (this.taskQueue.length > 0) {
       setImmediate(() => this.processQueue());
     }
@@ -130,7 +129,6 @@ export class TaskProcessorService {
         throw new Error('Task not found');
       }
 
-      // Дополнительная проверка статуса задачи
       if (task.status !== TaskStatus.ACTIVE) {
         this.logger.warn(`[TASK_${taskId}] Task is not active (status: ${task.status}), skipping`);
         return;
@@ -141,7 +139,6 @@ export class TaskProcessorService {
         return;
       }
 
-      // Устанавливаем флаг выполнения с дополнительной проверкой
       const updateResult = await this.taskModel
         .findByIdAndUpdate(taskId, { isRunning: true }, { new: true })
         .exec();
@@ -151,7 +148,6 @@ export class TaskProcessorService {
         throw new Error('Failed to set isRunning flag');
       }
 
-      // Проверяем, что флаг действительно установлен
       if (!updateResult.isRunning) {
         this.logger.error(`[TASK_${taskId}] Failed to set isRunning flag`);
         throw new Error('Failed to set isRunning flag');
@@ -161,14 +157,12 @@ export class TaskProcessorService {
         await this.processTask(updateResult);
       } finally {
         try {
-          // Сбрасываем флаг выполнения
           await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
           this.logger.info(`[TASK_${taskId}] Task execution completed, isRunning flag reset`);
         } catch (saveError) {
           this.logger.error(
             `[TASK_${taskId}] Failed to reset isRunning flag: ${saveError.message}`,
           );
-          // Дополнительная попытка сброса
           try {
             await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
           } catch (retryError) {
@@ -180,7 +174,6 @@ export class TaskProcessorService {
       }
     } catch (error) {
       this.logger.error(`[TASK_${taskId}] Error processing task: ${error.message}`, error);
-      // Гарантированный сброс флага при ошибке
       try {
         await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
         this.logger.info(`[TASK_${taskId}] Reset isRunning flag after error`);
@@ -205,7 +198,6 @@ export class TaskProcessorService {
         return;
       }
 
-      // Дополнительная проверка статуса задачи
       if (task.status !== TaskStatus.ACTIVE) {
         this.logger.warn(`[TASK_${taskId}] Task is not active (status: ${task.status}), skipping`);
         resolve();
@@ -218,7 +210,6 @@ export class TaskProcessorService {
         return;
       }
 
-      // Устанавливаем флаг выполнения с дополнительной проверкой
       const updateResult = await this.taskModel
         .findByIdAndUpdate(taskId, { isRunning: true }, { new: true })
         .exec();
@@ -229,7 +220,6 @@ export class TaskProcessorService {
         return;
       }
 
-      // Проверяем, что флаг действительно установлен
       if (!updateResult.isRunning) {
         this.logger.error(`[TASK_${taskId}] Failed to set isRunning flag`);
         reject(new Error('Failed to set isRunning flag'));
@@ -241,14 +231,12 @@ export class TaskProcessorService {
         resolve();
       } finally {
         try {
-          // Сбрасываем флаг выполнения
           await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
           this.logger.info(`[TASK_${taskId}] Task execution completed, isRunning flag reset`);
         } catch (saveError) {
           this.logger.error(
             `[TASK_${taskId}] Failed to reset isRunning flag: ${saveError.message}`,
           );
-          // Дополнительная попытка сброса
           try {
             await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
           } catch (retryError) {
@@ -260,7 +248,6 @@ export class TaskProcessorService {
       }
     } catch (error) {
       this.logger.error(`[TASK_${taskId}] Error processing task: ${error.message}`, error);
-      // Гарантированный сброс флага при ошибке
       try {
         await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
         this.logger.info(`[TASK_${taskId}] Reset isRunning flag after error`);
@@ -273,7 +260,6 @@ export class TaskProcessorService {
     }
   }
 
-  // Метод для получения статистики очереди
   getQueueStatus(): {
     queueLength: number;
     isProcessing: boolean;
@@ -288,7 +274,6 @@ export class TaskProcessorService {
     };
   }
 
-  // Метод для очистки очереди (для админа)
   clearQueue(): number {
     const queueLength = this.taskQueue.length;
     this.taskQueue = [];
@@ -296,7 +281,6 @@ export class TaskProcessorService {
     return queueLength;
   }
 
-  // Метод для получения статистики браузеров
   getBrowserStats() {
     return this.puppeteerService.getBrowserStats();
   }
@@ -794,7 +778,6 @@ export class TaskProcessorService {
           );
 
           await this.sleep(1_000 + Math.random() * 1_500);
-          // ...existing code...
 
           if (element.href && !element.href.startsWith('#')) {
             await page
@@ -965,10 +948,7 @@ export class TaskProcessorService {
       pauseChance: number;
       pauseDuration: { min: number; max: number };
     },
-    taskId?: string,
   ): Promise<void> {
-    const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
-
     await this.prepareField(page, selector);
 
     for (let i = 0; i < value.length; i++) {
@@ -980,7 +960,7 @@ export class TaskProcessorService {
       await this.sleep(totalDelay);
 
       if (Math.random() < config.typoChance && i < value.length - 1) {
-        await this.simulateTypo(page, selector, taskPrefix);
+        await this.simulateTypo(page, selector);
       }
 
       if (Math.random() < config.pauseChance && i < value.length - 1) {
@@ -1022,7 +1002,7 @@ export class TaskProcessorService {
     );
   }
 
-  private async simulateTypo(page: Page, selector: string, taskPrefix: string): Promise<void> {
+  private async simulateTypo(page: Page, selector: string): Promise<void> {
     const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26));
 
     await this.addCharacter(page, selector, typoChar);
@@ -1069,7 +1049,7 @@ export class TaskProcessorService {
     }
   }
 
-  private async simulateFieldTransition(page: Page, taskId?: string): Promise<void> {
+  private async simulateFieldTransition(page: Page): Promise<void> {
     const basePause = 800 + Math.random() * 1200;
     const readingPause = Math.random() < 0.2 ? 500 + Math.random() * 1_000 : 0;
     const quickPause = Math.random() < 0.1 ? Math.random() * 300 : 0;
@@ -1289,13 +1269,13 @@ export class TaskProcessorService {
             }
 
             const typingConfig = this.getTypingConfig(field.type);
-            await this.fillFieldWithTyping(page, field.selector, value, typingConfig, taskId);
+            await this.fillFieldWithTyping(page, field.selector, value, typingConfig);
 
             this.logger.info(
               `${taskPrefix} ✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
             );
 
-            await this.simulateFieldTransition(page, taskId);
+            await this.simulateFieldTransition(page);
           } catch (error) {
             this.logger.warn(
               `${taskPrefix} Failed to fill field ${field.selector}: ${error.message}`,

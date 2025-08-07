@@ -1,4 +1,3 @@
-import { TaskStatus } from '@enums';
 import { GeoProfileDto } from '@geo-profile/dto/geo-profile.dto';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -9,16 +8,19 @@ import {
   TaskStatisticsDto,
   UpdateTaskDto,
 } from '@task/dto/task.dto';
+import { LogWrapper } from '@utils';
 import { FilterQuery, Model } from 'mongoose';
 
-import { AgendaService } from '../jobs/agenda.service';
+import { BullMQService } from '../jobs/bullmq.service';
 import { Task, TaskDocument } from './task.schema';
 
 @Injectable()
 export class TaskService {
+  private readonly logger = new LogWrapper(TaskService.name);
+
   constructor(
     @InjectModel(Task.name) private taskModel: Model<Task>,
-    private readonly agendaService: AgendaService,
+    private readonly bullMQService: BullMQService,
   ) {}
 
   async createTask(dto: CreateTaskDto, userId: string): Promise<TaskDto> {
@@ -39,8 +41,6 @@ export class TaskService {
       isQuiz: dto.isQuiz ?? false,
     });
 
-    await this.rescheduleAgendaJob(created);
-
     const task = await this.taskModel
       .findById(created._id)
       .populate<{ profileId: GeoProfileDto }>({
@@ -48,6 +48,12 @@ export class TaskService {
         select: 'name geo',
       })
       .exec();
+
+    try {
+      await this.bullMQService.scheduleTask(created._id.toString(), dto.intervalMinutes);
+    } catch (error) {
+      this.logger.error(`Error scheduling task ${created._id}:`, error);
+    }
 
     const profile = task.profileId!;
     return {
@@ -138,8 +144,13 @@ export class TaskService {
   }
 
   async deleteTask(taskId: string): Promise<void> {
+    try {
+      await this.bullMQService.cancelTask(taskId);
+    } catch (error) {
+      this.logger.error(`Error cancelling task ${taskId}:`, error);
+    }
+
     await this.taskModel.findByIdAndDelete(taskId).exec();
-    await this.agendaService.cancelTaskJob(taskId);
   }
 
   async updateTask(taskId: string, dto: UpdateTaskDto): Promise<TaskDto> {
@@ -149,9 +160,42 @@ export class TaskService {
       throw new Error(`Task with ID ${taskId} not found`);
     }
 
+    const oldIntervalMinutes = task.intervalMinutes;
+    const oldTimeFrom = task.timeFrom;
+    const oldTimeTo = task.timeTo;
+
     Object.assign(task, dto);
     await task.save();
-    await this.rescheduleAgendaJob(task);
+
+    const needsReschedule =
+      (dto.intervalMinutes && dto.intervalMinutes !== oldIntervalMinutes) ||
+      (dto.timeFrom && dto.timeFrom !== oldTimeFrom) ||
+      (dto.timeTo && dto.timeTo !== oldTimeTo);
+
+    if (needsReschedule) {
+      const changes = [];
+      if (dto.intervalMinutes && dto.intervalMinutes !== oldIntervalMinutes) {
+        changes.push(`interval: ${oldIntervalMinutes} → ${dto.intervalMinutes}`);
+      }
+      if (dto.timeFrom && dto.timeFrom !== oldTimeFrom) {
+        changes.push(`timeFrom: ${oldTimeFrom} → ${dto.timeFrom}`);
+      }
+      if (dto.timeTo && dto.timeTo !== oldTimeTo) {
+        changes.push(`timeTo: ${oldTimeTo} → ${dto.timeTo}`);
+      }
+
+      this.logger.info(
+        `[TASK_UPDATE] Rescheduling task ${taskId} due to changes: ${changes.join(', ')}`,
+      );
+
+      try {
+        await this.bullMQService.rescheduleTask(taskId, task.intervalMinutes);
+        this.logger.info(`[TASK_UPDATE] Successfully rescheduled task ${taskId}`);
+      } catch (error) {
+        this.logger.error(`Error rescheduling task ${taskId}:`, error);
+      }
+    }
+
     const populatedTask = await this.taskModel
       .findById(taskId)
       .populate<{ profileId: GeoProfileDto }>({
@@ -205,14 +249,5 @@ export class TaskService {
       successCount,
       redirects,
     };
-  }
-
-  private async rescheduleAgendaJob(task: TaskDocument) {
-    const taskId = task._id.toString();
-    if (task.status === TaskStatus.ACTIVE) {
-      await this.agendaService.scheduleTaskJob(task);
-    } else if (taskId) {
-      await this.agendaService.cancelTaskJob(taskId);
-    }
   }
 }
