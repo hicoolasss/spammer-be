@@ -4,9 +4,12 @@ import Table from 'cli-table3';
 import { Browser, Page } from 'puppeteer';
 
 import { LogWrapper } from './LogWrapper';
+import { LogWrapper } from './LogWrapper';
 
 export const browserOpenTimes = new WeakMap<Browser, number>();
 export const pageOpenTimes = new WeakMap<Page, number>();
+
+const logger = new LogWrapper('PuppeteerLogging');
 
 const logger = new LogWrapper('PuppeteerLogging');
 
@@ -22,27 +25,39 @@ export function formatDuration(ms: number): string {
 export function logAllGeoPoolsTable(browserPool: Map<CountryCode, BrowserWrapper[]>) {
   const now = Date.now();
   for (const [geo, pool] of browserPool.entries()) {
+    if (pool.length === 0) {
+      logger.info(`[geo=${geo}] No browsers in pool`);
+      continue;
+    }
+
     const maxTabs = Math.max(0, ...pool.map((w) => w.pages.length));
     const tabHeaders = Array.from({ length: maxTabs }, (_, i) => `Tab #${i + 1}`);
     const table = new Table({
-      head: ['Browser #', 'Tabs', 'Browser Age', ...tabHeaders],
+      head: ['Browser #', 'Tabs', 'Browser Age', 'Status', ...tabHeaders],
       style: { head: ['cyan'] },
       wordWrap: true,
     });
+
     pool.forEach((w, i) => {
       const browserTime = browserOpenTimes.get(w.browser);
       const browserAge = browserTime ? formatDuration(now - browserTime) : '?';
+
+      const browserStatus = w.browser.isConnected() ? '🟢' : '🔴';
+
       const tabAges = w.pages.map((p) => {
         const t = pageOpenTimes.get(p);
         if (!t) {
           logger.info(`[DEBUG] Page ${p.url()} has no time recorded`);
           return '?';
         }
-        return formatDuration(now - t);
+        const age = formatDuration(now - t);
+        return p.isClosed() ? `❌(${age})` : age;
       });
+
       const rowTabs = tabAges.slice(0, maxTabs);
       while (rowTabs.length < tabHeaders.length) rowTabs.push('-');
-      table.push([`#${i + 1}`, w.pages.length, browserAge, ...rowTabs]);
+
+      table.push([`#${i + 1}`, w.pages.length, browserAge, browserStatus, ...rowTabs]);
     });
     logger.info(`\n[geo=${geo}] Browsers: ${pool.length}`);
     logger.info(`\n${table.toString()}`);

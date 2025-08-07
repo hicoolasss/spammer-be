@@ -285,6 +285,31 @@ export class TaskProcessorService {
     return this.puppeteerService.getBrowserStats();
   }
 
+  getQueueStatus(): {
+    queueLength: number;
+    isProcessing: boolean;
+    currentRunningTasks: number;
+    maxConcurrentTasks: number;
+  } {
+    return {
+      queueLength: this.taskQueue.length,
+      isProcessing: this.isProcessing,
+      currentRunningTasks: this.currentRunningTasks,
+      maxConcurrentTasks: this.MAX_CONCURRENT_TASKS,
+    };
+  }
+
+  clearQueue(): number {
+    const queueLength = this.taskQueue.length;
+    this.taskQueue = [];
+    this.logger.info(`[TASK_PROCESSOR] Queue cleared. Removed ${queueLength} tasks`);
+    return queueLength;
+  }
+
+  getBrowserStats() {
+    return this.puppeteerService.getBrowserStats();
+  }
+
   private async takeScreenshot(page: Page, taskId: string, stage: string): Promise<void> {
     if (!IS_DEBUG_MODE) {
       return;
@@ -341,15 +366,12 @@ export class TaskProcessorService {
       }
 
       this.logger.info(`[TASK_${taskId}] Processing lead: ${JSON.stringify(leadData)}`);
-      const TIMEOUT_MS = 11 * 60 * 1_000;
       this.logger.debug(
         `[TASK_${taskId}] Calling runPuppeteerTask with geo=${geo}, userAgent=${userAgent}, url=${finalUrl}`,
       );
-      await withTimeout(
-        this.runPuppeteerTask(task, finalUrl, leadData, userAgent),
-        TIMEOUT_MS,
-        () => this.logger.error(`[TASK_${taskId}] Task timed out, closing slot`),
-      );
+      
+      // Убираем таймаут - задачи должны выполняться через Agenda
+      await this.runPuppeteerTask(task, finalUrl, leadData, userAgent);
 
       await this.taskModel.findByIdAndUpdate(_id, { lastRunAt: new Date() });
       this.logger.info(`[TASK_${taskId}] Task completed. Updated lastRunAt.`);
@@ -492,18 +514,17 @@ export class TaskProcessorService {
     const { geo, shouldClickRedirectLink } = task;
     const taskId = task._id.toString();
     let finalRedirectUrl: string | null = null;
+    const taskStartTime = Date.now();
 
     let page: Page | null = null;
     let finalPage: Page | null = null;
     let afterSubmitUrl;
 
     try {
-      const puppeteerPage = await this.puppeteerService.acquirePage(
-        'task-processor',
-        geo as CountryCode,
-        userAgent,
-      );
+      this.logger.info(`[TASK_${taskId}] 🚀 Starting task, acquiring page for geo=${geo}`);
+      const puppeteerPage = await this.puppeteerService.acquirePage(geo as CountryCode, userAgent);
       page = puppeteerPage;
+      this.logger.info(`[TASK_${taskId}] ✅ Page acquired successfully`);
 
       this.logger.info(`[TASK_${taskId}] Navigating to: ${finalUrl}`);
 
@@ -536,7 +557,7 @@ export class TaskProcessorService {
       await this.takeScreenshot(finalPage, taskId, 'before-form-fill');
 
       afterSubmitUrl = await this.safeExecute(finalPage, () =>
-        this.fillFormWithData(finalPage, leadData, taskId, task.isQuiz),
+        this.fillFormWithData(finalPage, leadData, taskId, task.isQuiz, geo as CountryCode),
       );
 
       if (!finalPage.isClosed()) {
@@ -544,12 +565,46 @@ export class TaskProcessorService {
         this.logger.info(`[TASK_${taskId}] Final redirect URL: ${finalRedirectUrl}`);
       }
     } catch (error) {
-      this.logger.error(`[TASK_${taskId}] Error in Puppeteer task: ${error.message}`, error);
+      if (
+        error.message.includes('net::ERR_TUNNEL_CONNECTION_FAILED') ||
+        error.message.includes('net::ERR_') ||
+        error.message.includes('ERR_TUNNEL_CONNECTION_FAILED')
+      ) {
+        this.logger.warn(`[TASK_${taskId}] Network error: ${error.message}`);
+      } else if (
+        error.message.includes('SyntaxError') ||
+        error.message.includes('Unexpected token') ||
+        error.message.includes('Unexpected identifier') ||
+        error.message.includes('Unexpected end of input') ||
+        error.message.includes('Invalid or unexpected token')
+      ) {
+        this.logger.warn(`[TASK_${taskId}] Syntax error: ${error.message}`);
+      } else if (
+        error.message.includes('Failed to fetch') ||
+        (error.message.includes('TypeError') && error.message.includes('fetch'))
+      ) {
+        this.logger.warn(`[TASK_${taskId}] Fetch error: ${error.message}`);
+      } else if (
+        error.message.includes('Navigation timeout') ||
+        error.message.includes('Navigation failed') ||
+        error.message.includes('Navigation timeout after form submission')
+      ) {
+        this.logger.warn(`[TASK_${taskId}] Navigation error: ${error.message}`);
+      } else {
+        this.logger.error(`[TASK_${taskId}] Error in Puppeteer task: ${error.message}`, error);
+      }
     } finally {
+      const taskDuration = Date.now() - taskStartTime;
+      this.logger.info(`[TASK_${taskId}] ⏱️ Task completed in ${taskDuration}ms, releasing page`);
+
       if (finalPage && !finalPage.isClosed()) {
+        this.logger.debug(`[TASK_${taskId}] Releasing finalPage for geo=${geo}`);
         await this.puppeteerService.releasePage(finalPage, geo as CountryCode);
       } else if (page && !page.isClosed()) {
+        this.logger.debug(`[TASK_${taskId}] Releasing original page for geo=${geo}`);
         await this.puppeteerService.releasePage(page, geo as CountryCode);
+      } else {
+        this.logger.debug(`[TASK_${taskId}] No page to release, both pages are closed`);
       }
 
       await this.updateTaskStatistics(task._id.toString(), afterSubmitUrl || finalRedirectUrl);
@@ -597,7 +652,17 @@ export class TaskProcessorService {
 
       await page.goto(targetHref, { waitUntil: 'domcontentloaded', timeout: 10_000 });
     } catch (e) {
-      this.logger.warn(`${taskPrefix} Error in tryClickRedirectLink: ${e.message}`);
+      if (
+        e.message.includes('Navigation timeout') ||
+        e.message.includes('Navigation failed') ||
+        e.message.includes('Navigation timeout after form submission') ||
+        e.message.includes('net::ERR_') ||
+        e.message.includes('ERR_TUNNEL_CONNECTION_FAILED')
+      ) {
+        this.logger.warn(`${taskPrefix} Navigation error in tryClickRedirectLink: ${e.message}`);
+      } else {
+        this.logger.warn(`${taskPrefix} Error in tryClickRedirectLink: ${e.message}`);
+      }
     }
     return page;
   }
@@ -616,6 +681,33 @@ export class TaskProcessorService {
         error.message.includes('Session closed')
       ) {
         this.logger.warn('[TASK_UNKNOWN] Page context was destroyed, skipping action');
+        return null;
+      }
+      if (
+        error.message.includes('SyntaxError') ||
+        error.message.includes('Unexpected token') ||
+        error.message.includes('Unexpected identifier') ||
+        error.message.includes('Unexpected end of input') ||
+        error.message.includes('Invalid or unexpected token')
+      ) {
+        this.logger.warn(`[TASK_UNKNOWN] Syntax error in action: ${error.message}`);
+        return null;
+      }
+      if (
+        error.message.includes('Failed to fetch') ||
+        (error.message.includes('TypeError') && error.message.includes('fetch'))
+      ) {
+        this.logger.warn(`[TASK_UNKNOWN] Fetch error in action: ${error.message}`);
+        return null;
+      }
+      if (
+        error.message.includes('Navigation timeout') ||
+        error.message.includes('Navigation failed') ||
+        error.message.includes('Navigation timeout after form submission') ||
+        error.message.includes('net::ERR_') ||
+        error.message.includes('ERR_TUNNEL_CONNECTION_FAILED')
+      ) {
+        this.logger.warn(`[TASK_UNKNOWN] Navigation error in action: ${error.message}`);
         return null;
       }
       this.logger.error(`[TASK_UNKNOWN] Error executing action: ${error.message}`);
@@ -961,6 +1053,7 @@ export class TaskProcessorService {
 
       if (Math.random() < config.typoChance && i < value.length - 1) {
         await this.simulateTypo(page, selector);
+        await this.simulateTypo(page, selector);
       }
 
       if (Math.random() < config.pauseChance && i < value.length - 1) {
@@ -1002,6 +1095,7 @@ export class TaskProcessorService {
     );
   }
 
+  private async simulateTypo(page: Page, selector: string): Promise<void> {
   private async simulateTypo(page: Page, selector: string): Promise<void> {
     const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26));
 
@@ -1050,6 +1144,7 @@ export class TaskProcessorService {
   }
 
   private async simulateFieldTransition(page: Page): Promise<void> {
+  private async simulateFieldTransition(page: Page): Promise<void> {
     const basePause = 800 + Math.random() * 1200;
     const readingPause = Math.random() < 0.2 ? 500 + Math.random() * 1_000 : 0;
     const quickPause = Math.random() < 0.1 ? Math.random() * 300 : 0;
@@ -1093,6 +1188,7 @@ export class TaskProcessorService {
     leadData: LeadData,
     taskId?: string,
     isQuiz?: boolean,
+    geo?: CountryCode,
   ): Promise<string | null> {
     const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
 
@@ -1270,11 +1366,13 @@ export class TaskProcessorService {
 
             const typingConfig = this.getTypingConfig(field.type);
             await this.fillFieldWithTyping(page, field.selector, value, typingConfig);
+            await this.fillFieldWithTyping(page, field.selector, value, typingConfig);
 
             this.logger.info(
               `${taskPrefix} ✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
             );
 
+            await this.simulateFieldTransition(page);
             await this.simulateFieldTransition(page);
           } catch (error) {
             this.logger.warn(
@@ -1363,29 +1461,33 @@ export class TaskProcessorService {
         this.logger.info(`${taskPrefix} 🎉 Form submit result: ${submitResult}`);
       }
 
+      await this.sleep(2_000 + Math.random() * 1_000);
+
+      const navigationResult = await this.waitForNavigationReliable(
+        page,
+        taskPrefix,
+        beforeSubmitUrl,
+        geo,
+      );
+      let { navigationDetected, afterUrl: afterSubmitUrl } = navigationResult;
+
       await this.sleep(45_000);
 
       await this.takeScreenshot(page, taskId, 'thank-you');
 
-      try {
-        await page
-          .waitForNavigation({
-            waitUntil: 'domcontentloaded',
-            timeout: 10_000,
-          })
-          .catch(() => {
-            this.logger.warn(`${taskPrefix} Navigation timeout after form submission`);
-          });
-        const afterSubmitUrl = page.url();
-
-        return afterSubmitUrl;
-      } catch (error) {
-        this.logger.warn(
-          `${taskPrefix} Error waiting for navigation after form submission: ${error.message}`,
-        );
+      // Final URL check
+      const finalUrl = page.url();
+      if (finalUrl !== beforeSubmitUrl) {
+        afterSubmitUrl = finalUrl;
+        navigationDetected = true;
+        this.logger.info(`${taskPrefix} ✅ Final URL change detected: ${afterSubmitUrl}`);
       }
 
-      return page.url();
+      if (!navigationDetected) {
+        this.logger.info(`${taskPrefix} ℹ️ No navigation detected, but form submission completed`);
+      }
+
+      return afterSubmitUrl;
     } catch (error) {
       if (
         error.message.includes('Execution context was destroyed') ||
@@ -1401,5 +1503,87 @@ export class TaskProcessorService {
 
   private async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async waitForNavigationReliable(
+    page: Page,
+    taskPrefix: string,
+    beforeUrl: string,
+    geo?: CountryCode,
+  ): Promise<{ navigationDetected: boolean; afterUrl: string }> {
+    let navigationDetected = false;
+    let afterUrl = beforeUrl;
+
+    try {
+      await page.waitForNavigation({
+        waitUntil: 'domcontentloaded',
+        timeout: 3_000,
+      });
+      navigationDetected = true;
+      afterUrl = page.url();
+      this.logger.info(`${taskPrefix} ✅ Immediate navigation detected: ${afterUrl}`);
+      return { navigationDetected, afterUrl };
+    } catch {
+      this.logger.debug(`${taskPrefix} No immediate navigation, trying alternative methods...`);
+    }
+
+    await this.sleep(2_000);
+    const currentUrl = page.url();
+    if (currentUrl !== beforeUrl) {
+      navigationDetected = true;
+      afterUrl = currentUrl;
+      this.logger.info(`${taskPrefix} ✅ Delayed URL change detected: ${afterUrl}`);
+      return { navigationDetected, afterUrl };
+    }
+
+    if (geo) {
+      try {
+        const successIndicators = await checkSuccessIndicators(page, geo);
+        if (successIndicators.hasSuccessIndicators) {
+          this.logger.info(
+            `${taskPrefix} ✅ Success indicators found for geo ${geo}: ${successIndicators.indicators.join(', ')}`,
+          );
+          navigationDetected = true;
+          return { navigationDetected, afterUrl };
+        }
+      } catch (indicatorError) {
+        this.logger.debug(
+          `${taskPrefix} Error checking success indicators: ${indicatorError.message}`,
+        );
+      }
+    }
+
+    await this.sleep(3_000);
+    const finalUrl = page.url();
+    if (finalUrl !== beforeUrl) {
+      navigationDetected = true;
+      afterUrl = finalUrl;
+      this.logger.info(`${taskPrefix} ✅ Final URL change detected: ${afterUrl}`);
+      return { navigationDetected, afterUrl };
+    }
+
+    this.logger.info(`${taskPrefix} ℹ️ No navigation detected, but form submission completed`);
+    return { navigationDetected: false, afterUrl };
+  }
+
+  async getQueueStatistics(): Promise<{
+    queueLength: number;
+    activeTaskCount: number;
+    maxConcurrentTasks: number;
+    isProcessing: boolean;
+  }> {
+    return {
+      queueLength: this.taskQueue.length,
+      activeTaskCount: this.activeTaskCount,
+      maxConcurrentTasks: this.MAX_CONCURRENT_TASKS,
+      isProcessing: this.isProcessingQueue,
+    };
+  }
+
+  async forceProcessQueue(): Promise<void> {
+    this.logger.info(`[TASK_PROCESSOR] 🔄 Force processing queue...`);
+    if (!this.isProcessingQueue) {
+      this.processQueue();
+    }
   }
 }
