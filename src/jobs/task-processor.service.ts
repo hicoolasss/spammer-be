@@ -13,7 +13,7 @@ import { Browser, Page } from 'puppeteer';
 import { AIService } from '../ai/ai.service';
 import { PuppeteerService } from '../puppeteer/puppeteer.service';
 import { RedisService } from '../redis/redis.service';
-import { checkSuccessIndicators } from '../utils/success-indicators';
+import { calculateMaxConcurrentTasks } from '../utils/concurrency-limits';
 
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
   return Promise.race([
@@ -27,14 +27,20 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => void):
   ]);
 }
 
+interface QueuedTask {
+  taskId: string;
+  resolve: (value: void) => void;
+  reject: (reason?: any) => void;
+  priority: number;
+}
+
 @Injectable()
 export class TaskProcessorService {
   private readonly logger = new LogWrapper(TaskProcessorService.name);
-  private taskQueue: Array<{ taskId: string; priority: number }> = [];
-  private isProcessingQueue = false;
-  private readonly QUEUE_DELAY_MS = 2000;
-  private readonly MAX_CONCURRENT_TASKS = 3;
-  private activeTaskCount = 0;
+  private taskQueue: QueuedTask[] = [];
+  private isProcessing = false;
+  private readonly MAX_CONCURRENT_TASKS: number;
+  private currentRunningTasks = 0;
 
   constructor(
     @InjectModel(Task.name) private taskModel: Model<Task>,
@@ -42,93 +48,89 @@ export class TaskProcessorService {
     private readonly puppeteerService: PuppeteerService,
     private readonly redisService: RedisService,
     private readonly aiService: AIService,
-  ) {}
-
-  async processAllActiveTasks(): Promise<void> {
-    try {
-      const activeTasks = await this.taskModel.find({ status: TaskStatus.ACTIVE }).exec();
-
-      this.logger.info(`[TASK_PROCESSOR] Found ${activeTasks.length} active tasks to process`);
-
-      if (activeTasks.length === 0) {
-        this.logger.info(`[TASK_PROCESSOR] No active tasks found`);
-        return;
-      }
-
-      for (const task of activeTasks) {
-        this.addTaskToQueue(task._id.toString(), 1);
-      }
-
-      this.logger.info(`[TASK_PROCESSOR] 📋 Added ${activeTasks.length} tasks to queue`);
-
-      if (!this.isProcessingQueue) {
-        this.processQueue();
-      }
-    } catch (error) {
-      this.logger.error(`[TASK_PROCESSOR] Error processing active tasks: ${error.message}`, error);
-    }
-  }
-
-  private addTaskToQueue(taskId: string, priority: number): void {
-    this.taskQueue.push({ taskId, priority });
-    this.logger.debug(`[TASK_PROCESSOR] 📋 Added task ${taskId} to queue (priority: ${priority})`);
-  }
-
-  private async processQueue(): Promise<void> {
-    if (this.isProcessingQueue) {
-      this.logger.debug(`[TASK_PROCESSOR] Queue is already being processed`);
-      return;
-    }
-
-    this.isProcessingQueue = true;
-    this.logger.info(`[TASK_PROCESSOR] 🚀 Starting queue processing...`);
-
-    try {
-      while (this.taskQueue.length > 0 || this.activeTaskCount > 0) {
-        if (this.activeTaskCount < this.MAX_CONCURRENT_TASKS && this.taskQueue.length > 0) {
-          const taskItem = this.taskQueue.shift();
-          if (taskItem) {
-            this.activeTaskCount++;
-            this.logger.info(
-              `[TASK_PROCESSOR] 🚀 Starting task ${taskItem.taskId} (active: ${this.activeTaskCount}/${this.MAX_CONCURRENT_TASKS})`,
-            );
-
-            this.processTasks(taskItem.taskId)
-              .catch((e) => {
-                this.logger.error(`[TASK_${taskItem.taskId}] Error processing task: ${e.message}`);
-              })
-              .finally(() => {
-                this.activeTaskCount--;
-                this.logger.debug(
-                  `[TASK_PROCESSOR] ✅ Task ${taskItem.taskId} completed (active: ${this.activeTaskCount}/${this.MAX_CONCURRENT_TASKS})`,
-                );
-              });
-          }
-        }
-
-        await this.sleep(500);
-      }
-
-      this.logger.info(`[TASK_PROCESSOR] ✅ Queue processing completed`);
-    } catch (error) {
-      this.logger.error(`[TASK_PROCESSOR] Error in queue processing: ${error.message}`, error);
-    } finally {
-      this.isProcessingQueue = false;
-    }
+  ) {
+    this.MAX_CONCURRENT_TASKS = calculateMaxConcurrentTasks();
   }
 
   async processTasks(taskId: string): Promise<void> {
+    return new Promise<void>(async (resolve, reject) => {
+      if (this.currentRunningTasks < this.MAX_CONCURRENT_TASKS) {
+        this.logger.info(`[TASK_${taskId}] Free slot available, executing immediately`);
+        this.currentRunningTasks++;
+
+        try {
+          await this.executeTaskDirectly(taskId);
+          resolve();
+        } catch (error) {
+          reject(error);
+        } finally {
+          this.currentRunningTasks--;
+          this.logger.info(
+            `[TASK_PROCESSOR] Task ${taskId} completed. Running: ${this.currentRunningTasks}, Queue: ${this.taskQueue.length}`,
+          );
+          this.processQueue();
+        }
+      } else {
+        const queuedTask: QueuedTask = {
+          taskId,
+          resolve,
+          reject,
+          priority: Date.now(),
+        };
+
+        this.taskQueue.push(queuedTask);
+        this.logger.info(
+          `[TASK_${taskId}] No free slots, added to queue. Queue length: ${this.taskQueue.length}`,
+        );
+
+        this.taskQueue.sort((a, b) => a.priority - b.priority);
+        this.processQueue();
+      }
+    });
+  }
+
+  private async processQueue(): Promise<void> {
+    if (this.isProcessing || this.currentRunningTasks >= this.MAX_CONCURRENT_TASKS) {
+      return;
+    }
+
+    this.isProcessing = true;
+
+    while (this.taskQueue.length > 0 && this.currentRunningTasks < this.MAX_CONCURRENT_TASKS) {
+      const queuedTask = this.taskQueue.shift();
+      if (!queuedTask) break;
+
+      this.currentRunningTasks++;
+      this.logger.info(
+        `[TASK_PROCESSOR] Starting task ${queuedTask.taskId}. Running: ${this.currentRunningTasks}, Queue: ${this.taskQueue.length}`,
+      );
+
+      this.executeTask(queuedTask).finally(() => {
+        this.currentRunningTasks--;
+        this.logger.info(
+          `[TASK_PROCESSOR] Task ${queuedTask.taskId} completed. Running: ${this.currentRunningTasks}, Queue: ${this.taskQueue.length}`,
+        );
+      });
+    }
+
+    this.isProcessing = false;
+
+    if (this.taskQueue.length > 0) {
+      setImmediate(() => this.processQueue());
+    }
+  }
+
+  private async executeTaskDirectly(taskId: string): Promise<void> {
     try {
-      this.logger.info(`[TASK_${taskId}] 🚀 Starting task processing...`);
-
-      const delay = Math.floor(Math.random() * 2000) + 1000;
-      this.logger.debug(`[TASK_${taskId}] ⏳ Waiting ${delay}ms before starting...`);
-      await this.sleep(delay);
-
       const task = await this.taskModel.findById(taskId).exec();
 
       if (!task) {
         this.logger.error(`[TASK_${taskId}] Task not found`);
+        throw new Error('Task not found');
+      }
+
+      if (task.status !== TaskStatus.ACTIVE) {
+        this.logger.warn(`[TASK_${taskId}] Task is not active (status: ${task.status}), skipping`);
         return;
       }
 
@@ -137,25 +139,175 @@ export class TaskProcessorService {
         return;
       }
 
-      this.logger.info(`[TASK_${taskId}] ✅ Task acquired, starting execution...`);
+      const updateResult = await this.taskModel
+        .findByIdAndUpdate(taskId, { isRunning: true }, { new: true })
+        .exec();
 
-      task.isRunning = true;
-      await task.save();
+      if (!updateResult) {
+        this.logger.error(`[TASK_${taskId}] Failed to set isRunning flag - task not found`);
+        throw new Error('Failed to set isRunning flag');
+      }
+
+      if (!updateResult.isRunning) {
+        this.logger.error(`[TASK_${taskId}] Failed to set isRunning flag`);
+        throw new Error('Failed to set isRunning flag');
+      }
 
       try {
-        await this.processTask(task);
-        this.logger.info(`[TASK_${taskId}] ✅ Task completed successfully`);
-      } catch (error) {
-        this.logger.error(`[TASK_${taskId}] ❌ Task failed: ${error.message}`);
-        // Не выбрасываем ошибку - задача остается в Agenda для повторного выполнения
+        await this.processTask(updateResult);
       } finally {
-        task.isRunning = false;
-        await task.save();
-        this.logger.info(`[TASK_${taskId}] 🔓 Task lock released`);
+        try {
+          await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
+          this.logger.info(`[TASK_${taskId}] Task execution completed, isRunning flag reset`);
+        } catch (saveError) {
+          this.logger.error(
+            `[TASK_${taskId}] Failed to reset isRunning flag: ${saveError.message}`,
+          );
+          try {
+            await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
+          } catch (retryError) {
+            this.logger.error(
+              `[TASK_${taskId}] Failed to reset isRunning flag on retry: ${retryError.message}`,
+            );
+          }
+        }
       }
     } catch (error) {
-      this.logger.error(`[TASK_${taskId}] Error in processTasks: ${error.message}`, error);
+      this.logger.error(`[TASK_${taskId}] Error processing task: ${error.message}`, error);
+      try {
+        await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
+        this.logger.info(`[TASK_${taskId}] Reset isRunning flag after error`);
+      } catch (resetError) {
+        this.logger.error(
+          `[TASK_${taskId}] Failed to reset isRunning after error: ${resetError.message}`,
+        );
+      }
+      throw error;
     }
+  }
+
+  private async executeTask(queuedTask: QueuedTask): Promise<void> {
+    const { taskId, resolve, reject } = queuedTask;
+
+    try {
+      const task = await this.taskModel.findById(taskId).exec();
+
+      if (!task) {
+        this.logger.error(`[TASK_${taskId}] Task not found`);
+        reject(new Error('Task not found'));
+        return;
+      }
+
+      if (task.status !== TaskStatus.ACTIVE) {
+        this.logger.warn(`[TASK_${taskId}] Task is not active (status: ${task.status}), skipping`);
+        resolve();
+        return;
+      }
+
+      if (task.isRunning) {
+        this.logger.warn(`[TASK_${taskId}] Task is already running, skipping`);
+        resolve();
+        return;
+      }
+
+      const updateResult = await this.taskModel
+        .findByIdAndUpdate(taskId, { isRunning: true }, { new: true })
+        .exec();
+
+      if (!updateResult) {
+        this.logger.error(`[TASK_${taskId}] Failed to set isRunning flag - task not found`);
+        reject(new Error('Failed to set isRunning flag'));
+        return;
+      }
+
+      if (!updateResult.isRunning) {
+        this.logger.error(`[TASK_${taskId}] Failed to set isRunning flag`);
+        reject(new Error('Failed to set isRunning flag'));
+        return;
+      }
+
+      try {
+        await this.processTask(updateResult);
+        resolve();
+      } finally {
+        try {
+          await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
+          this.logger.info(`[TASK_${taskId}] Task execution completed, isRunning flag reset`);
+        } catch (saveError) {
+          this.logger.error(
+            `[TASK_${taskId}] Failed to reset isRunning flag: ${saveError.message}`,
+          );
+          try {
+            await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
+          } catch (retryError) {
+            this.logger.error(
+              `[TASK_${taskId}] Failed to reset isRunning flag on retry: ${retryError.message}`,
+            );
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.error(`[TASK_${taskId}] Error processing task: ${error.message}`, error);
+      try {
+        await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
+        this.logger.info(`[TASK_${taskId}] Reset isRunning flag after error`);
+      } catch (resetError) {
+        this.logger.error(
+          `[TASK_${taskId}] Failed to reset isRunning after error: ${resetError.message}`,
+        );
+      }
+      reject(error);
+    }
+  }
+
+  getQueueStatus(): {
+    queueLength: number;
+    isProcessing: boolean;
+    currentRunningTasks: number;
+    maxConcurrentTasks: number;
+  } {
+    return {
+      queueLength: this.taskQueue.length,
+      isProcessing: this.isProcessing,
+      currentRunningTasks: this.currentRunningTasks,
+      maxConcurrentTasks: this.MAX_CONCURRENT_TASKS,
+    };
+  }
+
+  clearQueue(): number {
+    const queueLength = this.taskQueue.length;
+    this.taskQueue = [];
+    this.logger.info(`[TASK_PROCESSOR] Queue cleared. Removed ${queueLength} tasks`);
+    return queueLength;
+  }
+
+  getBrowserStats() {
+    return this.puppeteerService.getBrowserStats();
+  }
+
+  getQueueStatus(): {
+    queueLength: number;
+    isProcessing: boolean;
+    currentRunningTasks: number;
+    maxConcurrentTasks: number;
+  } {
+    return {
+      queueLength: this.taskQueue.length,
+      isProcessing: this.isProcessing,
+      currentRunningTasks: this.currentRunningTasks,
+      maxConcurrentTasks: this.MAX_CONCURRENT_TASKS,
+    };
+  }
+
+  clearQueue(): number {
+    const queueLength = this.taskQueue.length;
+    this.taskQueue = [];
+    this.logger.info(`[TASK_PROCESSOR] Queue cleared. Removed ${queueLength} tasks`);
+    return queueLength;
+  }
+
+  getBrowserStats() {
+    return this.puppeteerService.getBrowserStats();
   }
 
   private async takeScreenshot(page: Page, taskId: string, stage: string): Promise<void> {
@@ -718,7 +870,6 @@ export class TaskProcessorService {
           );
 
           await this.sleep(1_000 + Math.random() * 1_500);
-          // ...existing code...
 
           if (element.href && !element.href.startsWith('#')) {
             await page
@@ -902,6 +1053,7 @@ export class TaskProcessorService {
 
       if (Math.random() < config.typoChance && i < value.length - 1) {
         await this.simulateTypo(page, selector);
+        await this.simulateTypo(page, selector);
       }
 
       if (Math.random() < config.pauseChance && i < value.length - 1) {
@@ -943,6 +1095,7 @@ export class TaskProcessorService {
     );
   }
 
+  private async simulateTypo(page: Page, selector: string): Promise<void> {
   private async simulateTypo(page: Page, selector: string): Promise<void> {
     const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26));
 
@@ -990,6 +1143,7 @@ export class TaskProcessorService {
     }
   }
 
+  private async simulateFieldTransition(page: Page): Promise<void> {
   private async simulateFieldTransition(page: Page): Promise<void> {
     const basePause = 800 + Math.random() * 1200;
     const readingPause = Math.random() < 0.2 ? 500 + Math.random() * 1_000 : 0;
@@ -1212,11 +1366,13 @@ export class TaskProcessorService {
 
             const typingConfig = this.getTypingConfig(field.type);
             await this.fillFieldWithTyping(page, field.selector, value, typingConfig);
+            await this.fillFieldWithTyping(page, field.selector, value, typingConfig);
 
             this.logger.info(
               `${taskPrefix} ✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
             );
 
+            await this.simulateFieldTransition(page);
             await this.simulateFieldTransition(page);
           } catch (error) {
             this.logger.warn(

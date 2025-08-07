@@ -19,6 +19,7 @@ export class PuppeteerService implements OnModuleDestroy {
 
   constructor() {
     this.MAX_BROWSERS_PER_GEO = Number(process.env.MAX_BROWSERS_PER_GEO) || 10;
+    this.MAX_BROWSERS_PER_GEO = Number(process.env.MAX_BROWSERS_PER_GEO) || 10;
     this.MAX_TABS_PER_BROWSER = Number(process.env.MAX_TABS_PER_BROWSER) || 10;
 
     this.logger.info(
@@ -53,73 +54,13 @@ export class PuppeteerService implements OnModuleDestroy {
   private handleChromePropertyError(err: Error, context: string): boolean {
     if (err.message.includes('Cannot redefine property: chrome')) {
       return true;
+      return true;
     }
     if (err.message.includes('Cannot redefine property')) {
       return true;
     }
-    if (err.message.includes('Unexpected token')) {
-      return true;
-    }
-    if (err.message.includes('SyntaxError')) {
-      return true;
-    }
-    if (err.message.includes('Unexpected identifier')) {
-      return true;
-    }
-    if (err.message.includes('Unexpected end of input')) {
-      return true;
-    }
-    if (err.message.includes('Invalid or unexpected token')) {
-      return true;
-    }
-    if (err.message.includes('Failed to fetch')) {
-      return true;
-    }
-    if (err.message.includes('TypeError') && err.message.includes('fetch')) {
-      return true;
-    }
-
-    if (err.message.includes('Cannot read properties of undefined')) {
-      return true;
-    }
-    if (err.message.includes('prototype')) {
-      return true;
-    }
-    if (err.message.includes('masterstroke_ajax is not defined')) {
-      return true;
-    }
-    if (err.message.includes('wp is not defined')) {
-      return true;
-    }
-    if (err.message.includes('i18n')) {
-      return true;
-    }
-    if (err.message.includes('hooks')) {
-      return true;
-    }
-    if (err.message.includes('ReferenceError')) {
-      return true;
-    }
-    if (err.message.includes('TypeError')) {
-      return true;
-    }
-
-    // Системные ошибки браузера
-    if (
-      err.message.includes('vkCreateInstance') ||
-      err.message.includes('VK_ERROR_INCOMPATIBLE_DRIVER') ||
-      err.message.includes('eglChooseConfig') ||
-      err.message.includes('BackendType::OpenGLES') ||
-      err.message.includes('Bind context provider failed') ||
-      err.message.includes('handshake failed') ||
-      err.message.includes('SSL error code') ||
-      err.message.includes('video_capture_service_impl')
-    ) {
-      return true;
-    }
-
     this.logger.error(`${context} error: ${err}`);
-    return false; // Error not handled, should be logged
+    return false;
   }
 
   async onModuleInit() {
@@ -174,143 +115,115 @@ export class PuppeteerService implements OnModuleDestroy {
       `[acquirePage] geo=${proxyGeo} | pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO}, MAX_TABS=${this.MAX_TABS_PER_BROWSER}`,
     );
 
-    const totalTabs = pool.reduce((sum, w) => sum + w.pages.length, 0);
-    const avgTabsPerBrowser = pool.length > 0 ? Math.round(totalTabs / pool.length) : 0;
-    this.logger.info(
-      `[acquirePage] geo=${proxyGeo} | Диагностика: браузеров=${pool.length}, всего вкладок=${totalTabs}, среднее=${avgTabsPerBrowser}/браузер`,
-    );
+    const getBrowserWithFreeSlot = () =>
+      pool.find((w) => w.pages.length < this.MAX_TABS_PER_BROWSER);
 
-    for (const wrapper of pool) {
-      wrapper.pages = wrapper.pages.filter((page) => !page.isClosed());
-    }
-
-    // Очищаем пустые браузеры если их больше 1
-    if (pool.length > 1) {
-      const emptyBrowsers = pool.filter((w) => w.pages.length === 0);
-      if (emptyBrowsers.length > 0) {
-        this.logger.info(`[acquirePage] geo=${proxyGeo} | 🗑️ Найдено ${emptyBrowsers.length} пустых браузеров, закрываю их`);
-        for (const emptyBrowser of emptyBrowsers) {
-          try {
-            await emptyBrowser.context.close().catch(() => {});
-            await emptyBrowser.browser.close().catch(() => {});
-          } catch (error) {
-            this.logger.error(`[acquirePage] geo=${proxyGeo} | Ошибка закрытия пустого браузера: ${error.message}`);
-          }
-        }
-        // Удаляем пустые браузеры из пула
-        const index = pool.indexOf(emptyBrowsers[0]);
-        if (index > -1) {
-          pool.splice(index, 1);
-        }
-      }
-    }
-
-    let shouldCreateNewBrowser = false;
-
-    if (pool.length === 0) {
-      shouldCreateNewBrowser = true;
-      this.logger.info(`[acquirePage] geo=${proxyGeo} | 🚀 Создаю первый браузер!`);
-    } else if (pool.every((w) => w.pages.length >= this.MAX_TABS_PER_BROWSER)) {
-      // Создаем новый браузер только если ВСЕ браузеры полностью заполнены
-      shouldCreateNewBrowser = true;
-      this.logger.info(
-        `[acquirePage] geo=${proxyGeo} | 🚀 Все браузеры полностью заполнены (${this.MAX_TABS_PER_BROWSER} вкладок), создаю новый!`,
-      );
-    } else if (
-      pool.length < this.MAX_BROWSERS_PER_GEO &&
-      totalTabs >= pool.length * this.MAX_TABS_PER_BROWSER * 0.8
-    ) {
-      // Создаем новый браузер только если общая загрузка пула >= 80%
-      shouldCreateNewBrowser = true;
-      this.logger.info(
-        `[acquirePage] geo=${proxyGeo} | 🚀 Общая загрузка пула ${Math.round((totalTabs / (pool.length * this.MAX_TABS_PER_BROWSER)) * 100)}% >= 80%, создаю новый браузер!`,
-      );
-    }
-
-    if (shouldCreateNewBrowser && pool.length < this.MAX_BROWSERS_PER_GEO) {
-      this.logger.info(
-        `[acquirePage] geo=${proxyGeo} | 🚀 Создаю новый браузер! pool.length=${pool.length} < ${this.MAX_BROWSERS_PER_GEO}`,
-      );
-
-      if (!this.browserCreationLocks.has(proxyGeo)) {
-        const lockPromise = new Promise<void>((resolve) => {
-          resolve();
-        });
-        this.browserCreationLocks.set(proxyGeo, lockPromise);
-
-        try {
-          const newWrapper = await this.getOrCreateBrowserForGeo(proxyGeo, locale, timeZone);
-          this.logger.debug(
-            `[acquirePage] geo=${proxyGeo} | Новый браузер создан, добавляю вкладку`,
-          );
-          const page = await this._openPage(newWrapper, userAgent, locale, timeZone, proxyGeo);
-          logAllGeoPoolsTable(this.browserPool);
-          return page;
-        } catch (err) {
-          this.logger.error(
-            `[acquirePage] geo=${proxyGeo} | Ошибка создания браузера: ${err.message}`,
-          );
-          throw err;
-        } finally {
-          this.browserCreationLocks.delete(proxyGeo);
-        }
-      } else {
-        this.logger.debug(`[acquirePage] geo=${proxyGeo} | Жду создания браузера другим потоком`);
-        await this.browserCreationLocks.get(proxyGeo);
-        const updatedPool = this.browserPool.get(proxyGeo) || [];
-        const wrapper = updatedPool.find((w) => w.pages.length < this.MAX_TABS_PER_BROWSER);
-        if (wrapper) {
-          this.logger.debug(
-            `[acquirePage] geo=${proxyGeo} | После ожидания найден браузер с ${wrapper.pages.length} вкладками`,
-          );
-          const page = await this._openPage(wrapper, userAgent, locale, timeZone, proxyGeo);
-          logAllGeoPoolsTable(this.browserPool);
-          return page;
-        }
-      }
-    }
-
-    const getBrowserWithFreeSlot = () => {
-      // Сначала ищем браузер с наименьшим количеством вкладок
-      const sortedBrowsers = pool
-        .filter((w) => w.pages.length < this.MAX_TABS_PER_BROWSER)
-        .sort((a, b) => a.pages.length - b.pages.length);
-      
-      return sortedBrowsers[0] || null;
+    const hasAvailableSlots = () => {
+      const totalSlots = pool.length * this.MAX_TABS_PER_BROWSER;
+      const usedSlots = pool.reduce((sum, w) => sum + w.pages.length, 0);
+      return usedSlots < totalSlots;
     };
-    
+
+    const canCreateNewBrowser = () => pool.length < this.MAX_BROWSERS_PER_GEO;
+
     let wrapper = getBrowserWithFreeSlot();
 
     if (wrapper) {
       this.logger.debug(
         `[acquirePage] geo=${proxyGeo} | Найден браузер с ${wrapper.pages.length} вкладками, добавляю вкладку`,
       );
-      const page = await this._openPage(wrapper, userAgent, locale, timeZone, proxyGeo);
+      const page = await this._openPage(wrapper, userAgent, locale, timeZone, creativeId, proxyGeo);
       logAllGeoPoolsTable(this.browserPool);
       return page;
     }
 
-    // Если все браузеры заполнены, но можем создать новый
-    if (pool.length < this.MAX_BROWSERS_PER_GEO) {
-      this.logger.info(
-        `[acquirePage] geo=${proxyGeo} | Все браузеры заполнены, создаю дополнительный браузер`,
+    if (hasAvailableSlots() || canCreateNewBrowser()) {
+      this.logger.debug(
+        `[acquirePage] geo=${proxyGeo} | Нет браузера со свободным слотом, но есть возможности. hasAvailableSlots=${hasAvailableSlots()}, canCreateNewBrowser=${canCreateNewBrowser()}`,
       );
-      try {
-        const newWrapper = await this.getOrCreateBrowserForGeo(proxyGeo, locale, timeZone);
-        const page = await this._openPage(newWrapper, userAgent, locale, timeZone, proxyGeo);
-        logAllGeoPoolsTable(this.browserPool);
-        return page;
-      } catch (err) {
-        this.logger.error(
-          `[acquirePage] geo=${proxyGeo} | Ошибка создания дополнительного браузера: ${err.message}`,
-        );
-      }
-    }
 
-    if (pool.length >= this.MAX_BROWSERS_PER_GEO) {
-      this.logger.warn(
-        `[acquirePage] geo=${proxyGeo} | Достигнут лимит браузеров: ${pool.length} >= ${this.MAX_BROWSERS_PER_GEO}`,
-      );
+      if (canCreateNewBrowser()) {
+        this.logger.debug(
+          `[acquirePage] geo=${proxyGeo} | Создаю новый браузер, pool.length=${pool.length} < ${this.MAX_BROWSERS_PER_GEO}`,
+        );
+
+        if (!this.browserCreationLocks.has(proxyGeo)) {
+          const lockPromise = new Promise<void>((resolve) => {
+            resolve();
+          });
+          this.browserCreationLocks.set(proxyGeo, lockPromise);
+          let newWrapper: BrowserWrapper;
+          try {
+            newWrapper = await this.getOrCreateBrowserForGeo(proxyGeo, locale, timeZone);
+            this.logger.debug(
+              `[acquirePage] geo=${proxyGeo} | Новый браузер создан, добавляю вкладку`,
+            );
+            const page = await this._openPage(
+              newWrapper,
+              userAgent,
+              locale,
+              timeZone,
+              creativeId,
+              proxyGeo,
+            );
+            this._drainGeoQueue(proxyGeo);
+            logAllGeoPoolsTable(this.browserPool);
+            return page;
+          } catch (err) {
+            if (newWrapper) newWrapper.pages = [];
+            throw err;
+          } finally {
+            this.browserCreationLocks.delete(proxyGeo);
+          }
+        } else {
+          this.logger.debug(`[acquirePage] geo=${proxyGeo} | Жду создания браузера другим потоком`);
+          await this.browserCreationLocks.get(proxyGeo);
+          const updatedPool = this.browserPool.get(proxyGeo) || [];
+          wrapper = updatedPool.find((w) => w.pages.length < this.MAX_TABS_PER_BROWSER);
+          if (wrapper) {
+            this.logger.debug(
+              `[acquirePage] geo=${proxyGeo} | После ожидания найден браузер с ${wrapper.pages.length} вкладками`,
+            );
+            const page = await this._openPage(
+              wrapper,
+              userAgent,
+              locale,
+              timeZone,
+              creativeId,
+              proxyGeo,
+            );
+            logAllGeoPoolsTable(this.browserPool);
+            return page;
+          }
+        }
+      } else {
+        this.logger.debug(
+          `[acquirePage] geo=${proxyGeo} | Достигнут лимит браузеров, но есть свободные слоты. Ждем освобождения...`,
+        );
+
+        for (let i = 0; i < 20; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          const updatedPool = this.browserPool.get(proxyGeo) || [];
+          wrapper = updatedPool.find((w) => w.pages.length < this.MAX_TABS_PER_BROWSER);
+
+          if (wrapper) {
+            this.logger.debug(
+              `[acquirePage] geo=${proxyGeo} | Найден свободный слот после ожидания, добавляю вкладку`,
+            );
+            const page = await this._openPage(
+              wrapper,
+              userAgent,
+              locale,
+              timeZone,
+              creativeId,
+              proxyGeo,
+            );
+            logAllGeoPoolsTable(this.browserPool);
+            return page;
+          }
+        }
+      }
     }
 
     wrapper = pool.reduce((min, w) => (w.pages.length < min.pages.length ? w : min), pool[0]);
@@ -435,78 +348,13 @@ export class PuppeteerService implements OnModuleDestroy {
         if (this.handleChromePropertyError(err, `Page error [${proxyGeo}]`)) return;
       });
 
-      page.on('pageerror', (err) => {
-        if (err.message.includes('setCookie is not defined')) {
-          return;
-        }
-        if (
-          err.message.includes('Identifier') &&
-          err.message.includes('has already been declared')
-        ) {
-          return;
-        }
-        if (err.message.includes('e.indexOf is not a function')) {
-          return;
-        }
-        if (err.message.includes('SyntaxError')) {
-          return;
-        }
-        if (err.message.includes('Unexpected token')) {
-          return;
-        }
-        if (err.message.includes('Unexpected identifier')) {
-          return;
-        }
-        if (err.message.includes('Unexpected end of input')) {
-          return;
-        }
-        if (err.message.includes('Invalid or unexpected token')) {
-          return;
-        }
-        if (err.message.includes('Failed to fetch')) {
-          return;
-        }
-        if (err.message.includes('TypeError') && err.message.includes('fetch')) {
-          return;
-        }
-
-        if (err.message.includes('Cannot read properties of undefined')) {
-          return;
-        }
-        if (err.message.includes('prototype')) {
-          return;
-        }
-        if (err.message.includes('masterstroke_ajax is not defined')) {
-          return;
-        }
-        if (err.message.includes('wp is not defined')) {
-          return;
-        }
-        if (err.message.includes('i18n')) {
-          return;
-        }
-        if (err.message.includes('hooks')) {
-          return;
-        }
-        if (err.message.includes('ReferenceError')) {
-          return;
-        }
-        if (err.message.includes('TypeError')) {
-          return;
-        }
-
-        if (this.handleChromePropertyError(err, `Runtime error [${proxyGeo}]`)) return;
-        this.logger.warn(`Runtime error [${proxyGeo}]: ${err.message}`);
-      });
-    } catch (error) {
-      this.logger.error(`[_openPage] geo=${proxyGeo} | Error setting up page: ${error.message}`);
-    }
-
-    const finalTime = pageOpenTimes.get(page);
-    if (!finalTime) {
-      this.logger.error(`[_openPage] geo=${proxyGeo} | Page time was lost during setup!`);
-      pageOpenTimes.set(page, pageOpenTime);
-    }
+    page.on('pageerror', (err) => {
+      if (err?.message?.includes('setCookie is not defined')) {
+        return;
+      }
+      if (this.handleChromePropertyError(err, `Runtime error [${proxyGeo}]`)) return;
+      this.logger.error(`Runtime error [${proxyGeo}]: ${err}`);
+    });
 
     return page;
   }
@@ -940,11 +788,138 @@ export class PuppeteerService implements OnModuleDestroy {
       return wrapper;
     }
 
-    // Если достигнут лимит браузеров, возвращаем браузер с наименьшим количеством вкладок
+    let wrapper = pool.find((w) => w.pages.length < this.MAX_TABS_PER_BROWSER);
+    if (wrapper) {
+      this.logger.debug(
+        `[getOrCreateBrowserForGeo] geo=${countryCode} | Найден существующий браузер с ${wrapper.pages.length} вкладками`,
+      );
+      return wrapper;
+    }
+
     this.logger.debug(
       `[getOrCreateBrowserForGeo] geo=${countryCode} | Достигнут лимит браузеров, возвращаю браузер с наименьшим количеством вкладок`,
     );
     const wrapper = pool.reduce((min, w) => (w.pages.length < min.pages.length ? w : min), pool[0]);
     return wrapper;
+  }
+
+  private hasAvailableSlot(geo: CountryCode): boolean {
+    const pool = this.browserPool.get(geo) || [];
+
+    const hasAvailableBrowser = pool.some((w) => w.pages.length < this.MAX_TABS_PER_BROWSER);
+    if (hasAvailableBrowser) return true;
+
+    if (pool.length < this.MAX_BROWSERS_PER_GEO) return true;
+
+    return false;
+  }
+
+  private async _drainGeoQueue(geo: CountryCode) {
+    const currentPool = this.browserPool.get(geo) || [];
+    const queue = this.geoTaskQueues.get(geo);
+
+    if (!queue || queue.length === 0) {
+      return;
+    }
+
+    this.logger.debug(
+      `[_drainGeoQueue] geo=${geo} | Обрабатываю очередь: ${queue.length} задач, pool: ${currentPool.length} браузеров`,
+    );
+
+    const getFreeSlots = () => {
+      return currentPool.reduce((acc, w) => acc + (this.MAX_TABS_PER_BROWSER - w.pages.length), 0);
+    };
+
+    const canCreateNewBrowser = () => currentPool.length < this.MAX_BROWSERS_PER_GEO;
+
+    let processedCount = 0;
+    let freeSlots = getFreeSlots();
+
+    while (queue.length > 0 && (freeSlots > 0 || canCreateNewBrowser())) {
+      const next = queue.shift();
+      if (!next) break;
+
+      if (freeSlots > 0) {
+        this.logger.debug(
+          `[_drainGeoQueue] geo=${geo} | Запускаю задачу из очереди, свободных слотов: ${freeSlots}`,
+        );
+        this.acquirePage(next.creativeId, next.proxyGeo, next.userAgent)
+          .then(next.resolve)
+          .catch(next.reject);
+        freeSlots--;
+        processedCount++;
+      } else if (canCreateNewBrowser()) {
+        this.logger.debug(
+          `[_drainGeoQueue] geo=${geo} | Нет свободных слотов, но можно создать новый браузер — инициирую acquirePage для очереди`,
+        );
+        this.acquirePage(next.creativeId, next.proxyGeo, next.userAgent)
+          .then(next.resolve)
+          .catch(next.reject);
+        processedCount++;
+      }
+    }
+
+    if (processedCount > 0) {
+      this.logger.info(
+        `[_drainGeoQueue] geo=${geo} | Обработано ${processedCount} задач из очереди. Осталось: ${queue.length}`,
+      );
+    }
+
+    if (queue.length > 0) {
+      this.logger.debug(
+        `[_drainGeoQueue] geo=${geo} | Осталось задач в очереди: ${queue.length}. Свободных слотов: ${getFreeSlots()}, можно создать браузер: ${canCreateNewBrowser()}`,
+      );
+    }
+
+    logAllGeoPoolsTable(this.browserPool);
+  }
+
+  getBrowserStats(): {
+    totalBrowsers: number;
+    totalPages: number;
+    geoStats: Record<
+      string,
+      {
+        browsers: number;
+        pages: number;
+        freeSlots: number;
+        queueLength: number;
+      }
+    >;
+  } {
+    const stats = {
+      totalBrowsers: 0,
+      totalPages: 0,
+      geoStats: {} as Record<
+        string,
+        {
+          browsers: number;
+          pages: number;
+          freeSlots: number;
+          queueLength: number;
+        }
+      >,
+    };
+
+    for (const [geo, pool] of this.browserPool.entries()) {
+      const browsers = pool.length;
+      const pages = pool.reduce((sum, w) => sum + w.pages.length, 0);
+      const freeSlots = pool.reduce(
+        (sum, w) => sum + (this.MAX_TABS_PER_BROWSER - w.pages.length),
+        0,
+      );
+      const queueLength = this.geoTaskQueues.get(geo)?.length || 0;
+
+      stats.totalBrowsers += browsers;
+      stats.totalPages += pages;
+      stats.geoStats[geo] = {
+        browsers,
+        pages,
+        freeSlots,
+        queueLength,
+      };
+    }
+
+    return stats;
   }
 }

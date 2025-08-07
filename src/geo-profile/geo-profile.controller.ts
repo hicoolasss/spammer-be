@@ -11,13 +11,13 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   UploadedFiles,
   UseInterceptors,
-  Patch,
 } from '@nestjs/common';
-import { AnyFilesInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { UserDto } from '@user/dto/user.dto';
 
 @Controller('geo-profile')
@@ -81,14 +81,6 @@ export class GeoProfileController {
   ): Promise<GeoProfileDto> {
     return this.geoProfileService.updateGeoProfile(profileId, dto, files);
   }
-
-  //TODO
-  // @Get('user/:userId')
-  // async list(
-  //   @Param('userId') userId: string,
-  // ): Promise<GeoProfileResponseDto[]> {
-  //   return this.geoProfileService.findAllByUser(userId);
-  // }
 
   @Get()
   async listAll(
