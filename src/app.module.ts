@@ -25,7 +25,6 @@ import { LogWrapper } from '@utils';
 import mongoose from 'mongoose';
 
 import { AppController } from './app.controller';
-import { JobsModule } from './jobs/jobs.module';
 import { PuppeteerModule } from './puppeteer/puppeteer.module';
 
 @Module({
@@ -57,7 +56,6 @@ import { PuppeteerModule } from './puppeteer/puppeteer.module';
     PuppeteerModule,
     RedisModule,
     TaskModule,
-    JobsModule,
   ],
   controllers: [AppController],
   providers: [CookieService, TokenService, Logger],
