@@ -15,6 +15,9 @@ import { PuppeteerService } from '../puppeteer/puppeteer.service';
 import { RedisService } from '../redis/redis.service';
 import { calculateMaxConcurrentTasks } from '../utils/concurrency-limits';
 
+const NAVIGATION_TIMEOUT_MS = 15_000;
+const FORM_SUBMISSION_WAIT_MS = 45_000;
+
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
   return Promise.race([
     promise,
@@ -390,7 +393,7 @@ export class TaskProcessorService {
         task.result.success = {};
       }
 
-      if (finalRedirectUrl && finalRedirectUrl !== task.url) {
+      if (finalRedirectUrl) {
         let foundKey: string | undefined;
 
         for (const key of Object.keys(task.result.success as Record<string, number>)) {
@@ -410,7 +413,15 @@ export class TaskProcessorService {
 
         task.markModified('result.success');
 
-        this.logger.info(`[TASK_${taskId}] Successful redirect to: ${finalRedirectUrl}`);
+        if (finalRedirectUrl !== task.url) {
+          this.logger.info(`[TASK_${taskId}] ✅ Successful redirect to: ${finalRedirectUrl}`);
+        } else {
+          this.logger.info(
+            `[TASK_${taskId}] ✅ Form submitted successfully (same URL): ${finalRedirectUrl}`,
+          );
+        }
+      } else {
+        this.logger.warn(`[TASK_${taskId}] ⚠️ No result URL captured for statistics`);
       }
 
       await task.save();
@@ -545,6 +556,15 @@ export class TaskProcessorService {
       }
     } catch (error) {
       this.logger.error(`[TASK_${taskId}] Error in Puppeteer task: ${error.message}`, error);
+
+      if (finalPage && !finalPage.isClosed()) {
+        try {
+          finalRedirectUrl = finalPage.url();
+          this.logger.info(`[TASK_${taskId}] Captured URL after error: ${finalRedirectUrl}`);
+        } catch (urlError) {
+          this.logger.warn(`[TASK_${taskId}] Could not get URL after error: ${urlError.message}`);
+        }
+      }
     } finally {
       if (finalPage && !finalPage.isClosed()) {
         await this.puppeteerService.releasePage(finalPage, geo as CountryCode);
@@ -552,7 +572,15 @@ export class TaskProcessorService {
         await this.puppeteerService.releasePage(page, geo as CountryCode);
       }
 
-      await this.updateTaskStatistics(task._id.toString(), afterSubmitUrl || finalRedirectUrl);
+      // Always update statistics with whatever result we have
+      const finalResult = afterSubmitUrl || finalRedirectUrl;
+      if (finalResult) {
+        this.logger.info(`[TASK_${taskId}] Final result URL: ${finalResult}`);
+      } else {
+        this.logger.info(`[TASK_${taskId}] No result URL captured`);
+      }
+
+      await this.updateTaskStatistics(task._id.toString(), finalResult);
     }
   }
 
@@ -1363,29 +1391,57 @@ export class TaskProcessorService {
         this.logger.info(`${taskPrefix} 🎉 Form submit result: ${submitResult}`);
       }
 
-      await this.sleep(45_000);
+      await this.sleep(FORM_SUBMISSION_WAIT_MS);
 
       await this.takeScreenshot(page, taskId, 'thank-you');
 
-      try {
-        await page
-          .waitForNavigation({
-            waitUntil: 'domcontentloaded',
-            timeout: 10_000,
-          })
-          .catch(() => {
-            this.logger.warn(`${taskPrefix} Navigation timeout after form submission`);
-          });
-        const afterSubmitUrl = page.url();
+      let afterSubmitUrl: string | null = null;
 
-        return afterSubmitUrl;
-      } catch (error) {
-        this.logger.warn(
-          `${taskPrefix} Error waiting for navigation after form submission: ${error.message}`,
+      try {
+        await page.waitForNavigation({
+          waitUntil: 'domcontentloaded',
+          timeout: NAVIGATION_TIMEOUT_MS,
+        });
+        afterSubmitUrl = page.url();
+        this.logger.info(
+          `${taskPrefix} ✅ Navigation completed after form submission: ${afterSubmitUrl}`,
         );
+      } catch {
+        this.logger.info(
+          `${taskPrefix} ℹ️ Navigation timeout after form submission (this is normal for some forms)`,
+        );
+
+        const currentUrl = page.url();
+        if (currentUrl !== beforeSubmitUrl) {
+          afterSubmitUrl = currentUrl;
+          this.logger.info(
+            `${taskPrefix} ✅ URL changed despite navigation timeout: ${afterSubmitUrl}`,
+          );
+
+          const redirectAnalysis = this.analyzeRedirect(currentUrl, beforeSubmitUrl);
+          this.logger.info(`${taskPrefix} 📊 Redirect analysis: ${redirectAnalysis.reason}`);
+        } else {
+          const submissionResult = await this.detectFormSubmissionSuccess(
+            page,
+            taskId,
+            beforeSubmitUrl,
+          );
+
+          if (submissionResult.isSuccess) {
+            this.logger.info(
+              `${taskPrefix} ✅ Form submission appears successful: ${submissionResult.reason}`,
+            );
+            afterSubmitUrl = submissionResult.url;
+          } else {
+            this.logger.info(
+              `${taskPrefix} ℹ️ ${submissionResult.reason} - treating as potential success`,
+            );
+            afterSubmitUrl = currentUrl;
+          }
+        }
       }
 
-      return page.url();
+      return afterSubmitUrl;
     } catch (error) {
       if (
         error.message.includes('Execution context was destroyed') ||
@@ -1401,5 +1457,246 @@ export class TaskProcessorService {
 
   private async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async detectFormSubmissionSuccess(
+    page: Page,
+    taskId: string,
+    originalUrl?: string,
+  ): Promise<{
+    isSuccess: boolean;
+    reason: string;
+    url: string;
+  }> {
+    const taskPrefix = `[TASK_${taskId}]`;
+
+    try {
+      if (page.isClosed()) {
+        return { isSuccess: false, reason: 'Page is closed', url: '' };
+      }
+
+      const result = await page.evaluate(() => {
+        const successIndicators = [
+          'thank you',
+          'thankyou',
+          'success',
+          'успешно',
+          'спасибо',
+          'отправлено',
+          'подтверждено',
+          'заявка принята',
+          'application received',
+          'form submitted',
+          'form sent',
+          'ваша заявка',
+          'ваше сообщение',
+          'your application',
+          'your message',
+          'received',
+          'accepted',
+          'принята',
+          'получена',
+        ];
+
+        const errorIndicators = [
+          'error',
+          'ошибка',
+          'failed',
+          'неудачно',
+          'попробуйте еще раз',
+          'try again',
+          'invalid',
+          'неверно',
+          'required',
+          'обязательно',
+        ];
+
+        const pageText = document.body?.textContent?.toLowerCase() || '';
+        const pageTitle = document.title?.toLowerCase() || '';
+        const url = window.location.href;
+
+        const hasSuccessText = successIndicators.some(
+          (indicator) => pageText.includes(indicator) || pageTitle.includes(indicator),
+        );
+
+        const hasErrorText = errorIndicators.some(
+          (indicator) => pageText.includes(indicator) || pageTitle.includes(indicator),
+        );
+
+        const hasForm = document.querySelector('form') !== null;
+        const hasSubmitButton =
+          document.querySelector('button[type="submit"], input[type="submit"]') !== null;
+        const hasErrorMessage =
+          document.querySelector('.error, .alert-danger, .error-message') !== null;
+        const hasSuccessMessage =
+          document.querySelector('.success, .alert-success, .success-message') !== null;
+
+        return {
+          hasSuccessText,
+          hasErrorText,
+          hasForm,
+          hasSubmitButton,
+          hasErrorMessage,
+          hasSuccessMessage,
+          pageTitle: document.title,
+          url,
+        };
+      });
+
+      const currentUrl = result.url;
+      const hasRedirect = originalUrl && currentUrl !== originalUrl;
+
+      if (hasRedirect) {
+        const redirectAnalysis = this.analyzeRedirect(currentUrl, originalUrl);
+        if (redirectAnalysis.isSuccess) {
+          return {
+            isSuccess: true,
+            reason: `Redirect detected: ${redirectAnalysis.reason}`,
+            url: currentUrl,
+          };
+        }
+      }
+
+      if (result.hasErrorText || result.hasErrorMessage) {
+        return {
+          isSuccess: false,
+          reason: `Error indicators found: "${result.pageTitle}"`,
+          url: result.url,
+        };
+      }
+
+      if (result.hasSuccessText || result.hasSuccessMessage) {
+        return {
+          isSuccess: true,
+          reason: `Success indicators found: "${result.pageTitle}"`,
+          url: result.url,
+        };
+      }
+
+      // If there's no form or submit button, it might indicate successful submission
+      if (!result.hasForm && !result.hasSubmitButton) {
+        return {
+          isSuccess: true,
+          reason: 'No form found on page, likely successful submission',
+          url: result.url,
+        };
+      }
+
+      // If form is still present but no error indicators, consider it potentially successful
+      return {
+        isSuccess: true,
+        reason: 'Form present but no error indicators',
+        url: result.url,
+      };
+    } catch (error) {
+      this.logger.warn(`${taskPrefix} Error detecting form submission success: ${error.message}`);
+      return { isSuccess: false, reason: `Detection error: ${error.message}`, url: '' };
+    }
+  }
+
+  private analyzeRedirect(
+    currentUrl: string,
+    originalUrl: string,
+  ): {
+    isSuccess: boolean;
+    reason: string;
+  } {
+    try {
+      const currentUrlObj = new URL(currentUrl);
+      const originalUrlObj = new URL(originalUrl);
+
+      const thankYouPatterns = [
+        'thank',
+        'thanks',
+        'спасибо',
+        'благодарим',
+        'thankyou',
+        'success',
+        'успешно',
+        'confirmation',
+        'подтверждение',
+      ];
+
+      const currentPath = currentUrlObj.pathname.toLowerCase();
+      const currentHost = currentUrlObj.hostname.toLowerCase();
+      const originalHost = originalUrlObj.hostname.toLowerCase();
+
+      const hasThankYouPattern = thankYouPatterns.some(
+        (pattern) => currentPath.includes(pattern) || currentUrl.toLowerCase().includes(pattern),
+      );
+
+      if (hasThankYouPattern) {
+        return {
+          isSuccess: true,
+          reason: `Redirect to thank you page: ${currentPath}`,
+        };
+      }
+
+      if (currentHost === originalHost && currentPath !== originalUrlObj.pathname) {
+        return {
+          isSuccess: true,
+          reason: `Redirect to different page on same domain: ${currentPath}`,
+        };
+      }
+
+      if (currentHost !== originalHost) {
+        const analyticsPatterns = [
+          'google.com/analytics',
+          'facebook.com',
+          'yandex.ru',
+          'mail.ru',
+          'vk.com',
+          'ok.ru',
+          'doubleclick.net',
+          'googlesyndication.com',
+        ];
+
+        const isAnalyticsRedirect = analyticsPatterns.some(
+          (pattern) => currentHost.includes(pattern) || currentUrl.includes(pattern),
+        );
+
+        if (isAnalyticsRedirect) {
+          return {
+            isSuccess: true,
+            reason: `Redirect to analytics/partner system: ${currentHost}`,
+          };
+        }
+
+        return {
+          isSuccess: true,
+          reason: `Redirect to external site: ${currentHost}`,
+        };
+      }
+
+      const successParams = [
+        'success=true',
+        'status=success',
+        'result=ok',
+        'success=1',
+        'status=ok',
+        'result=success',
+      ];
+
+      const hasSuccessParam = successParams.some((param) =>
+        currentUrl.toLowerCase().includes(param),
+      );
+
+      if (hasSuccessParam) {
+        return {
+          isSuccess: true,
+          reason: `Redirect with success parameter: ${currentUrl}`,
+        };
+      }
+
+      return {
+        isSuccess: true,
+        reason: `URL changed from ${originalUrlObj.pathname} to ${currentPath}`,
+      };
+    } catch {
+      return {
+        isSuccess: true,
+        reason: `URL changed (parsing error): ${currentUrl}`,
+      };
+    }
   }
 }

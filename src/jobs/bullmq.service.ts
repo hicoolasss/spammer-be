@@ -131,6 +131,14 @@ export class BullMQService implements OnModuleDestroy {
         return;
       }
 
+      const existingJobs = await this.taskQueue.getJobs(['delayed', 'waiting']);
+      const existingJob = existingJobs.find((job) => job.data.taskId === taskId);
+
+      if (existingJob) {
+        this.logger.info(`[SCHEDULE] Task ${taskId} is already scheduled, skipping duplicate`);
+        return;
+      }
+
       if (!isWithinTimeRange(task.timeFrom, task.timeTo)) {
         const timeUntilNextRun = getTimeUntilNextAllowedRun(task.timeFrom, task.timeTo);
 
@@ -139,13 +147,14 @@ export class BullMQService implements OnModuleDestroy {
             `Scheduling for next allowed time in ${Math.round(timeUntilNextRun / 1000 / 60)} minutes`,
         );
 
+        const jobId = `task-${taskId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         await this.taskQueue.add(
           'process-task',
           { taskId },
           {
             delay: timeUntilNextRun + intervalMinutes * 60 * 1000,
             priority: 1,
-            jobId: `task-${taskId}-${Date.now()}`,
+            jobId,
             removeOnComplete: true,
             removeOnFail: false,
           },
@@ -168,13 +177,14 @@ export class BullMQService implements OnModuleDestroy {
 
       const priority = this.calculatePriority(task, intervalMinutes);
 
+      const jobId = `task-${taskId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       await this.taskQueue.add(
         'process-task',
         { taskId },
         {
           delay: delayedRunAt.getTime() - now.getTime(),
           priority,
-          jobId: `task-${taskId}-${Date.now()}`,
+          jobId,
           removeOnComplete: true,
           removeOnFail: false,
         },
@@ -240,13 +250,16 @@ export class BullMQService implements OnModuleDestroy {
       }
 
       if (task.isRunning) {
-        this.logger.warn(`[PROCESS] Task ${taskId} is already running, skipping`);
+        this.logger.warn(
+          `[PROCESS] Task ${taskId} is already running, scheduling next run and skipping`,
+        );
+        await this.scheduleNextRun(taskId);
         return;
       }
 
       if (!isWithinTimeRange(task.timeFrom, task.timeTo)) {
         this.logger.warn(
-          `[PROCESS] Task ${taskId} is outside allowed time range (${task.timeFrom}-${task.timeTo}), skipping`,
+          `[PROCESS] Task ${taskId} is outside allowed time range (${task.timeFrom}-${task.timeTo}), rescheduling`,
         );
 
         const timeUntilNextRun = getTimeUntilNextAllowedRun(task.timeFrom, task.timeTo);
@@ -261,12 +274,16 @@ export class BullMQService implements OnModuleDestroy {
       });
 
       this.logger.info(`[PROCESS] Task ${taskId} processed successfully`);
+
+      await this.scheduleNextRun(taskId);
     } catch (error) {
       this.logger.error(`[PROCESS] Error processing task ${taskId}: ${error.message}`);
 
       await this.taskModel.findByIdAndUpdate(taskId, {
         isRunning: false,
       });
+
+      await this.scheduleNextRun(taskId);
 
       throw error;
     }
@@ -345,6 +362,38 @@ export class BullMQService implements OnModuleDestroy {
     return Math.min(Math.max(priority, 1), 100);
   }
 
+  private async scheduleNextRun(taskId: string): Promise<void> {
+    try {
+      const task = await this.taskModel.findById(taskId).exec();
+      if (!task) {
+        this.logger.warn(`[SCHEDULE_NEXT] Task ${taskId} not found, cannot schedule next run`);
+        return;
+      }
+
+      if (task.status !== TaskStatus.ACTIVE) {
+        this.logger.warn(`[SCHEDULE_NEXT] Task ${taskId} is not active, skipping next run`);
+        return;
+      }
+
+      const existingJobs = await this.taskQueue.getJobs(['delayed', 'waiting']);
+      const existingJob = existingJobs.find((job) => job.data.taskId === taskId);
+
+      if (existingJob) {
+        this.logger.info(`[SCHEDULE_NEXT] Task ${taskId} is already scheduled, skipping duplicate`);
+        return;
+      }
+
+      await this.scheduleTask(taskId, task.intervalMinutes);
+      this.logger.info(
+        `[SCHEDULE_NEXT] Task ${taskId} scheduled for next run in ${task.intervalMinutes} minutes`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[SCHEDULE_NEXT] Error scheduling next run for task ${taskId}: ${error.message}`,
+      );
+    }
+  }
+
   async getQueueStats() {
     if (!this.isInitialized) {
       throw new Error('BullMQ service not initialized');
@@ -369,6 +418,33 @@ export class BullMQService implements OnModuleDestroy {
       };
     } catch (error) {
       this.logger.error(`[STATS] Error getting queue stats: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async getScheduledTasks(): Promise<
+    Array<{ taskId: string; jobId: string; delay: number; priority: number }>
+  > {
+    if (!this.isInitialized) {
+      throw new Error('BullMQ service not initialized');
+    }
+
+    try {
+      const delayed = await this.taskQueue.getDelayed();
+      const waiting = await this.taskQueue.getWaiting();
+
+      const scheduledTasks = [...delayed, ...waiting].map((job) => ({
+        taskId: job.data.taskId,
+        jobId: job.id,
+        delay: job.delay || 0,
+        priority: job.opts.priority || 0,
+        scheduledAt: job.timestamp,
+        nextRunAt: new Date(job.timestamp + (job.delay || 0)),
+      }));
+
+      return scheduledTasks;
+    } catch (error) {
+      this.logger.error(`[SCHEDULED_TASKS] Error getting scheduled tasks: ${error.message}`);
       throw error;
     }
   }
