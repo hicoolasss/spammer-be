@@ -267,8 +267,7 @@ export class PuppeteerService implements OnModuleDestroy {
     }
 
     await page.setUserAgent(userAgent);
-    const headers = HEADERS(locale, userAgent);
-    await page.setExtraHTTPHeaders(headers);
+    await page.setExtraHTTPHeaders(HEADERS(locale, userAgent));
     await page.emulateTimezone(timeZone);
 
     const localeRaw = getBrowserSpoofScript(locale, timeZone);
