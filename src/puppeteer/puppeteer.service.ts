@@ -1,7 +1,7 @@
 import { CountryCode } from '@enums';
 import { Injectable, InternalServerErrorException, OnModuleDestroy } from '@nestjs/common';
 import { BrowserWrapper } from '@types';
-import { IS_PROD_ENV, LogWrapper } from '@utils';
+import { BROWSER_ARGUMENTS, IS_PROD_ENV, LogWrapper } from '@utils';
 import { LOCALE_SETTINGS } from '@utils';
 import { getBrowserSpoofScript, getRandomItem, HEADERS, MOBILE_VIEWPORTS } from '@utils';
 import * as dns from 'dns';
@@ -11,6 +11,8 @@ import { browserOpenTimes, logAllGeoPoolsTable, pageOpenTimes } from 'src/utils/
 @Injectable()
 export class PuppeteerService implements OnModuleDestroy {
   private readonly logger = new LogWrapper(PuppeteerService.name);
+  private readonly proxy = `--proxy-server=http://${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
+
   private browserPool = new Map<CountryCode, BrowserWrapper[]>();
   private geoTaskQueues = new Map<
     CountryCode,
@@ -354,27 +356,7 @@ export class PuppeteerService implements OnModuleDestroy {
         headless: IS_PROD_ENV,
         dumpio: true,
         pipe: true,
-        args: [
-          `--proxy-server=http://${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`,
-          `--lang=${locale}`,
-          `--timezone=${timeZone}`,
-          '--disable-web-security',
-          '--allow-running-insecure-content',
-          '--ignore-certificate-errors',
-          '--disable-blink-features=AutomationControlled',
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding',
-          '--disable-features=TranslateUI',
-          '--disable-ipc-flooding-protection',
-        ],
+        args: BROWSER_ARGUMENTS(this.proxy, locale, timeZone),
         slowMo: 0,
         defaultViewport: null,
       });

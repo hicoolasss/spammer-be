@@ -1,3 +1,4 @@
+export * from './browserArguments'
 export * from './env.enums';
 export { getBrowserSpoofScript } from './getBrowserSpoofScript';
 export * from './headers';
