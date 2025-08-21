@@ -513,6 +513,7 @@ export class TaskProcessorService {
         'task-processor',
         geo as CountryCode,
         userAgent,
+        finalUrl,
       );
       page = puppeteerPage;
 

@@ -22,6 +22,7 @@ export class PuppeteerService implements OnModuleDestroy {
       userAgent: string;
       locale: string;
       timeZone: string;
+      linkurl?: string;
       resolve: (value: Page) => void;
       reject: (reason?: any) => void;
     }>
@@ -98,7 +99,12 @@ export class PuppeteerService implements OnModuleDestroy {
     this.browserPool.clear();
   }
 
-  async acquirePage(creativeId: string, proxyGeo: CountryCode, userAgent: string): Promise<Page> {
+  async acquirePage(
+    creativeId: string,
+    proxyGeo: CountryCode,
+    userAgent: string,
+    linkurl?: string,
+  ): Promise<Page> {
     const localeSettings = LOCALE_SETTINGS[proxyGeo] || LOCALE_SETTINGS.ALL;
     const { locale, timeZone } = localeSettings;
     const pool = this.browserPool.get(proxyGeo) || [];
@@ -124,7 +130,7 @@ export class PuppeteerService implements OnModuleDestroy {
       this.logger.debug(
         `[acquirePage] geo=${proxyGeo} | Найден браузер с ${wrapper.pages.length} вкладками, добавляю вкладку`,
       );
-      const page = await this._openPage(wrapper, userAgent, locale, timeZone, creativeId, proxyGeo);
+      const page = await this._openPage(wrapper, userAgent, locale, timeZone, proxyGeo, linkurl);
       logAllGeoPoolsTable(this.browserPool);
       return page;
     }
@@ -155,8 +161,8 @@ export class PuppeteerService implements OnModuleDestroy {
               userAgent,
               locale,
               timeZone,
-              creativeId,
               proxyGeo,
+              linkurl,
             );
             this._drainGeoQueue(proxyGeo);
             logAllGeoPoolsTable(this.browserPool);
@@ -181,8 +187,8 @@ export class PuppeteerService implements OnModuleDestroy {
               userAgent,
               locale,
               timeZone,
-              creativeId,
               proxyGeo,
+              linkurl,
             );
             logAllGeoPoolsTable(this.browserPool);
             return page;
@@ -208,8 +214,8 @@ export class PuppeteerService implements OnModuleDestroy {
               userAgent,
               locale,
               timeZone,
-              creativeId,
               proxyGeo,
+              linkurl,
             );
             logAllGeoPoolsTable(this.browserPool);
             return page;
@@ -231,6 +237,7 @@ export class PuppeteerService implements OnModuleDestroy {
         userAgent,
         locale,
         timeZone,
+        linkurl,
         resolve,
         reject,
       });
@@ -242,8 +249,8 @@ export class PuppeteerService implements OnModuleDestroy {
     userAgent: string,
     locale: string,
     timeZone: string,
-    creativeId: string,
     proxyGeo: CountryCode,
+    linkurl?: string,
   ): Promise<Page> {
     if (wrapper.pages.length >= this.MAX_TABS_PER_BROWSER) {
       this.logger.error(
@@ -269,7 +276,7 @@ export class PuppeteerService implements OnModuleDestroy {
     }
 
     await page.setUserAgent(userAgent);
-    await page.setExtraHTTPHeaders(HEADERS(locale, userAgent));
+    await page.setExtraHTTPHeaders(HEADERS(locale, userAgent, linkurl));
     await page.emulateTimezone(timeZone);
 
     const localeRaw = getBrowserSpoofScript(locale, timeZone);
@@ -469,7 +476,7 @@ export class PuppeteerService implements OnModuleDestroy {
         this.logger.debug(
           `[_drainGeoQueue] geo=${geo} | Запускаю задачу из очереди, свободных слотов: ${freeSlots}`,
         );
-        this.acquirePage(next.creativeId, next.proxyGeo, next.userAgent)
+        this.acquirePage(next.creativeId, next.proxyGeo, next.userAgent, next.linkurl)
           .then(next.resolve)
           .catch(next.reject);
         freeSlots--;
@@ -478,7 +485,7 @@ export class PuppeteerService implements OnModuleDestroy {
         this.logger.debug(
           `[_drainGeoQueue] geo=${geo} | Нет свободных слотов, но можно создать новый браузер — инициирую acquirePage для очереди`,
         );
-        this.acquirePage(next.creativeId, next.proxyGeo, next.userAgent)
+        this.acquirePage(next.creativeId, next.proxyGeo, next.userAgent, next.linkurl)
           .then(next.resolve)
           .catch(next.reject);
         processedCount++;
