@@ -90,7 +90,7 @@ export class BullMQService implements OnModuleDestroy {
       this.isInitialized = true;
       this.logger.info('[BULLMQ] Сервис инициализирован успешно');
 
-      await this.scheduleExistingTasks();
+      await this.scheduleActiveTasks();
     } catch (error) {
       this.logger.error(`[BULLMQ] Ошибка инициализации: ${error.message}`);
       throw error;
@@ -289,27 +289,8 @@ export class BullMQService implements OnModuleDestroy {
     }
   }
 
-  private async scheduleExistingTasks(): Promise<void> {
+  private async scheduleActiveTasks(): Promise<void> {
     try {
-      const resetResult = await this.taskModel.updateMany(
-        { isRunning: true },
-        { isRunning: false },
-      );
-
-      if (resetResult.modifiedCount > 0) {
-        this.logger.info(
-          `[SCHEDULE_EXISTING] Reset isRunning to false for ${resetResult.modifiedCount} tasks`,
-        );
-      }
-
-      const deleteResult = await this.taskModel.deleteMany({
-        status: { $ne: TaskStatus.ACTIVE },
-      });
-
-      if (deleteResult.deletedCount > 0) {
-        this.logger.info(`[SCHEDULE_EXISTING] Deleted ${deleteResult.deletedCount} inactive tasks`);
-      }
-
       const activeTasks = await this.taskModel
         .find({
           status: TaskStatus.ACTIVE,
@@ -317,7 +298,7 @@ export class BullMQService implements OnModuleDestroy {
         })
         .exec();
 
-      this.logger.info(`[SCHEDULE_EXISTING] Found ${activeTasks.length} active tasks to schedule`);
+      this.logger.info(`[SCHEDULE_ACTIVE] Found ${activeTasks.length} active tasks to schedule`);
 
       let scheduledCount = 0;
       let skippedCount = 0;
@@ -329,7 +310,7 @@ export class BullMQService implements OnModuleDestroy {
             scheduledCount++;
           } else {
             this.logger.info(
-              `[SCHEDULE_EXISTING] Task ${task._id} is outside allowed time range ` +
+              `[SCHEDULE_ACTIVE] Task ${task._id} is outside allowed time range ` +
                 `(${task.timeFrom}-${task.timeTo}), will be scheduled later`,
             );
             await this.scheduleTask(task._id.toString(), task.intervalMinutes);
@@ -337,17 +318,17 @@ export class BullMQService implements OnModuleDestroy {
           }
         } catch (error) {
           this.logger.error(
-            `[SCHEDULE_EXISTING] Error scheduling task ${task._id}: ${error.message}`,
+            `[SCHEDULE_ACTIVE] Error scheduling task ${task._id}: ${error.message}`,
           );
         }
       }
 
       this.logger.info(
-        `[SCHEDULE_EXISTING] Finished scheduling existing tasks. ` +
+        `[SCHEDULE_ACTIVE] Finished scheduling active tasks. ` +
           `Scheduled: ${scheduledCount}, Skipped (outside time): ${skippedCount}`,
       );
     } catch (error) {
-      this.logger.error(`[SCHEDULE_EXISTING] Error scheduling existing tasks: ${error.message}`);
+      this.logger.error(`[SCHEDULE_ACTIVE] Error scheduling active tasks: ${error.message}`);
     }
   }
 
