@@ -14,7 +14,8 @@
     "start:prod": "node dist/src/main",
     "restart": "git fetch && git pull && pnpm i && pnpm run build && pm2 stop all && pm2 start all",
     "check-deps": "knip",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix"
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "set:proxies": "ts-node scripts/set-proxies.ts"
   },
   "dependencies": {
     "@logtail/node": "^0.5.6",
@@ -42,12 +43,13 @@
     "express": "^5.1.0",
     "ioredis": "^5.7.0",
     "knip": "^5.63.1",
+    "mongodb": "^6.19.0",
     "mongoose": "^8.18.1",
     "multer": "1.4.5-lts.1",
-    "react": "^19.1.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "puppeteer": "^24.19.0",
+    "react": "^19.1.1",
     "redis": "^5.8.2",
     "reflect-metadata": "^0.2.2",
     "resend": "^4.8.0",
@@ -66,6 +68,7 @@
     "eslint-plugin-simple-import-sort": "^12.1.1",
     "globals": "^15.15.0",
     "prettier": "^3.6.2",
+    "ts-node": "^10.9.2",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.43.0"
   },
