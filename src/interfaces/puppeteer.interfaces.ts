@@ -11,10 +11,3 @@ export interface MobileViewport {
   screenSize?: float;
   densityPPI?: number;
 }
-
-export interface ArchiveContext {
-  page: Page;
-  linkUrl: string;
-  locale: string;
-  userAgent: string;
-}

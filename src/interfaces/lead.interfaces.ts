@@ -5,13 +5,13 @@ export interface LeadData {
   email: string;
 }
 
-export interface FormField {
+interface FormField {
   selector: string;
   type: 'name' | 'surname' | 'phone' | 'email' | 'checkbox';
   confidence: number;
 }
 
-export interface FormAnalysis {
+interface FormAnalysis {
   formIndex: number;
   fields: FormField[];
   confidence: number;

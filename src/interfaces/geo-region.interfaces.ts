@@ -1,6 +1,6 @@
 import { CountryCode } from '@enums';
 
-export interface IGeoRegion {
+interface IGeoRegion {
   name: CountryCode;
 }
 

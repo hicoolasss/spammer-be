@@ -50,8 +50,3 @@ export function getTimeUntilNextAllowedRun(timeFrom: string, timeTo: string): nu
 
   return 0;
 }
-
-export function formatTimeForLogging(timeString: string): string {
-  const [hours, minutes] = timeString.split(':').map(Number);
-  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-}
