@@ -33,6 +33,7 @@
       "@email/*": ["src/email/*"],
       "@enums": ["src/enums/index"],
       "@geo-profile/*": ["src/geo-profile/*"],
+      "@geo-regions/*": ["src/geo-regions/*"],
       "@interfaces": ["src/interfaces/index"],
       "@redis/*": ["src/redis/*"],
       "@task/*": ["src/task/*"],

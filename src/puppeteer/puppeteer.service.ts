@@ -8,10 +8,11 @@ import * as dns from 'dns';
 import { Browser, launch, Page } from 'puppeteer';
 import { browserOpenTimes, logAllGeoPoolsTable, pageOpenTimes } from 'src/utils/puppeteer-logging';
 
+import { GeoRegionsService } from '../geo-regions/geo-regions.service';
+
 @Injectable()
 export class PuppeteerService implements OnModuleDestroy {
   private readonly logger = new LogWrapper(PuppeteerService.name);
-  private readonly proxy = `--proxy-server=http://${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
 
   private browserPool = new Map<CountryCode, BrowserWrapper[]>();
   private geoTaskQueues = new Map<
@@ -32,7 +33,7 @@ export class PuppeteerService implements OnModuleDestroy {
   private readonly MAX_BROWSERS_PER_GEO: number;
   private readonly MAX_TABS_PER_BROWSER: number;
 
-  constructor() {
+  constructor(private readonly geoRegionsService: GeoRegionsService) {
     this.MAX_BROWSERS_PER_GEO = Number(process.env.MAX_BROWSERS_PER_GEO) || 10;
     this.MAX_TABS_PER_BROWSER = Number(process.env.MAX_TABS_PER_BROWSER) || 10;
 
@@ -263,18 +264,7 @@ export class PuppeteerService implements OnModuleDestroy {
     const pageOpenTime = Date.now();
     pageOpenTimes.set(page, pageOpenTime);
     wrapper.pages.push(page);
-
-    this.logger.debug(`[_openPage] geo=${proxyGeo} | Вкладка создана, время: ${pageOpenTime}`);
-
-    try {
-      await page.authenticate({
-        username: process.env.PROXY_USERNAME,
-        password: `${process.env.PROXY_PASSWORD}_country-${proxyGeo}`,
-      });
-    } catch (e) {
-      this.logger.error(`Error in page.authenticate: ${e.message}`);
-    }
-
+ 
     await page.setUserAgent(userAgent);
     await page.setExtraHTTPHeaders(HEADERS(locale, userAgent, linkurl));
     await page.emulateTimezone(timeZone);
@@ -355,15 +345,21 @@ export class PuppeteerService implements OnModuleDestroy {
     }
   }
 
-  private async createBrowser(locale: string, timeZone: string): Promise<Browser> {
+  private async createBrowser(
+    locale: string,
+    timeZone: string,
+    countryCode: CountryCode,
+  ): Promise<Browser> {
     dns.setServers(['1.1.1.1']);
     let browser: Browser;
     try {
+      const proxyInfo = await this.geoRegionsService.getGeoProxy(countryCode);
+      const proxy = `--proxy-server=http://${proxyInfo.host}:${proxyInfo.port} --proxy-auth=${proxyInfo.username}:${proxyInfo.password}`;
       browser = await launch({
         headless: IS_PROD_ENV,
         dumpio: true,
         pipe: true,
-        args: BROWSER_ARGUMENTS(this.proxy, locale, timeZone),
+        args: BROWSER_ARGUMENTS(proxy, locale, timeZone),
         slowMo: 0,
         defaultViewport: null,
       });
@@ -404,7 +400,7 @@ export class PuppeteerService implements OnModuleDestroy {
         `[getOrCreateBrowserForGeo] geo=${countryCode} | Создаю новый браузер, pool.length=${pool.length}, MAX_BROWSERS=${this.MAX_BROWSERS_PER_GEO}`,
       );
 
-      const browser = await this.createBrowser(locale, timeZone);
+      const browser = await this.createBrowser(locale, timeZone, countryCode);
       const context = await browser.createBrowserContext();
 
       context.on('error', (err: Error) => {
