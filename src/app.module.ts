@@ -9,6 +9,7 @@ import { CookieService } from '@cookie/cookie.service';
 import { EmailModule } from '@email/email.module';
 import { GeoProfileController } from '@geo-profile/geo-profile.controller';
 import { GeoProfileModule } from '@geo-profile/geo-profile.module';
+import { GeoRegionsModule } from '@geo-regions/geo-regions.module';
 import { Logger, MiddlewareConsumer, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -52,6 +53,7 @@ import { PuppeteerModule } from './puppeteer/puppeteer.module';
     TokenModule,
     UserModule,
     AdminModule,
+    GeoRegionsModule,
     GeoProfileModule,
     PuppeteerModule,
     RedisModule,
