@@ -1,5 +1,4 @@
 import { float } from "aws-sdk/clients/cloudfront";
-import { Page } from "puppeteer";
 
 export interface MobileViewport {
   name: string;
