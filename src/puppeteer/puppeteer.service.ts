@@ -264,7 +264,7 @@ export class PuppeteerService implements OnModuleDestroy {
     const pageOpenTime = Date.now();
     pageOpenTimes.set(page, pageOpenTime);
     wrapper.pages.push(page);
-
+ 
     await page.setUserAgent(userAgent);
     await page.setExtraHTTPHeaders(HEADERS(locale, userAgent, linkurl));
     await page.emulateTimezone(timeZone);
@@ -352,6 +352,10 @@ export class PuppeteerService implements OnModuleDestroy {
   ): Promise<Browser> {
     dns.setServers(['1.1.1.1']);
     let browser: Browser;
+
+    this.logger.debug(
+      `[createBrowser] countryCode=${countryCode} timeZone=${timeZone} locale=${locale}`,
+    );
 
     try {
       const proxyInfo = await this.geoRegionsService.getGeoProxy(countryCode);
