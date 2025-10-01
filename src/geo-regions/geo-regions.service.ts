@@ -47,6 +47,8 @@ export class GeoRegionsService implements OnModuleInit {
       countryCode,
     }).exec();
 
+    this.logger.warn("DEBUG", countryCode, geoProxy);
+
     if (geoProxy && geoProxy.host && geoProxy.port && geoProxy.username && geoProxy.password) {
       return geoProxy;
     }
