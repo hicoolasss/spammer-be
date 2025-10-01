@@ -62,8 +62,8 @@ export class PuppeteerService implements OnModuleDestroy {
       this.logger.error('Proxy host is not set in environment variables');
     }
 
-    if (!process.env.PROXY_HOST) {
-      this.logger.error('Proxy host is not set in environment variables');
+    if (!process.env.PROXY_PORT) {
+      this.logger.error('Proxy port is not set in environment variables');
     }
 
     if (!process.env.PROXY_USERNAME) {
@@ -354,7 +354,6 @@ export class PuppeteerService implements OnModuleDestroy {
     let browser: Browser;
     try {
       const proxyInfo = await this.geoRegionsService.getGeoProxy(countryCode);
-      this.logger.debug(`[createBrowser] Создаю браузер для гео ${countryCode} с прокси ${JSON.stringify(proxyInfo)}`);
       const proxy = `--proxy-server=http://${proxyInfo.host}:${proxyInfo.port} --proxy-auth=${proxyInfo.username}:${proxyInfo.password}`;
       browser = await launch({
         headless: IS_PROD_ENV,

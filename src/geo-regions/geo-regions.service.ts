@@ -11,10 +11,6 @@ import { GeoRegions } from './geo-regions.schema';
 export class GeoRegionsService implements OnModuleInit {
   private readonly logger = new LogWrapper(GeoRegionsService.name);
 
-  private readonly PROXY_HOST = process.env.PROXY_HOST;
-  private readonly PROXY_PORT = parseInt(process.env.PROXY_PORT, 10);
-  private readonly PROXY_USERNAME = process.env.PROXY_USERNAME;
-  private readonly PROXY_PASSWORD = process.env.PROXY_PASSWORD;
   private readonly AUTO_FILL_REGIONS = process.env.AUTO_FILL_REGIONS !== 'false';
 
   constructor(
@@ -69,16 +65,21 @@ export class GeoRegionsService implements OnModuleInit {
       return defaultProxy;
     }
 
-    if (this.PROXY_HOST || this.PROXY_PORT || this.PROXY_USERNAME || this.PROXY_PASSWORD) {
+    if (
+      process.env.PROXY_HOST ||
+      parseInt(process.env.PROXY_PORT, 10) ||
+      process.env.PROXY_USERNAME ||
+      process.env.PROXY_PASSWORD
+    ) {
       this.logger.error('No active proxy found and no environment proxy set.');
       throw new Error('No active proxy found and no environment proxy set.');
     }
 
     const envProxy = {
-      host: this.PROXY_HOST,
-      port: this.PROXY_PORT,
-      username: this.PROXY_USERNAME,
-      password: this.PROXY_PASSWORD,
+      host: process.env.PROXY_HOST,
+      port: parseInt(process.env.PROXY_PORT, 10),
+      username: process.env.PROXY_USERNAME,
+      password: process.env.PROXY_PASSWORD,
       countryCode: CountryCode.ALL,
     };
 
@@ -175,7 +176,11 @@ export class GeoRegionsService implements OnModuleInit {
     }
   }
 
-  private async fillRegions(): Promise<{ success: boolean; message: string; createdCount: number }> {
+  private async fillRegions(): Promise<{
+    success: boolean;
+    message: string;
+    createdCount: number;
+  }> {
     try {
       const allCountryCodes = Object.values(CountryCode);
       this.logger.info(`Starting to fill regions for ${allCountryCodes.length} country codes`);
