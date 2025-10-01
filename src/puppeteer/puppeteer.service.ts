@@ -352,6 +352,11 @@ export class PuppeteerService implements OnModuleDestroy {
   ): Promise<Browser> {
     dns.setServers(['1.1.1.1']);
     let browser: Browser;
+
+    this.logger.debug(
+      `[createBrowser] countryCode=${countryCode} timeZone=${timeZone} locale=${locale}`,
+    );
+
     try {
       const proxyInfo = await this.geoRegionsService.getGeoProxy(countryCode);
       const proxy = `--proxy-server=http://${proxyInfo.host}:${proxyInfo.port} --proxy-auth=${proxyInfo.username}:${proxyInfo.password}`;

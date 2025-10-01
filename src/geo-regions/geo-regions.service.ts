@@ -43,11 +43,13 @@ export class GeoRegionsService implements OnModuleInit {
   }
 
   async getGeoProxy(countryCode: CountryCode): Promise<IProxyInfo> {
+    this.logger.debug(`[getGeoProxy] countryCode=${countryCode}`);
+
     const geoProxy = await this.GeoRegionsModel.findOne({
       countryCode,
     }).exec();
 
-    this.logger.warn("DEBUG", countryCode, geoProxy);
+    this.logger.debug(`[getGeoProxy] geoProxy=${geoProxy}`);
 
     if (geoProxy && geoProxy.host && geoProxy.port && geoProxy.username && geoProxy.password) {
       return geoProxy;
