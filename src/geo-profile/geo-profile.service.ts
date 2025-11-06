@@ -236,7 +236,7 @@ export class GeoProfileService {
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       createReadStream(filePath)
-        .pipe(csv({ headers, skipLines: 0 }))
+        .pipe(csv({ headers, skipLines: 0, separator: ";" }))
         .on('data', onRow)
         .on('end', resolve)
         .on('error', reject);
