@@ -264,7 +264,7 @@ export class PuppeteerService implements OnModuleDestroy {
     const pageOpenTime = Date.now();
     pageOpenTimes.set(page, pageOpenTime);
     wrapper.pages.push(page);
-
+ 
     await page.setUserAgent(userAgent);
     await page.setExtraHTTPHeaders(HEADERS(locale, userAgent, linkurl));
     await page.emulateTimezone(timeZone);
@@ -359,11 +359,7 @@ export class PuppeteerService implements OnModuleDestroy {
 
     try {
       const proxyInfo = await this.geoRegionsService.getGeoProxy(countryCode);
-
-      const encodedUsername = encodeURIComponent(proxyInfo.username);
-      const encodedPassword = encodeURIComponent(proxyInfo.password);
-
-      const proxy = `--proxy-server=http://${encodedUsername}:${encodedPassword}@${proxyInfo.host}:${proxyInfo.port}`;
+      const proxy = `--proxy-server=http://${proxyInfo.host}:${proxyInfo.port} --proxy-auth=${proxyInfo.username}:${proxyInfo.password}`;
       browser = await launch({
         headless: IS_PROD_ENV,
         dumpio: true,
