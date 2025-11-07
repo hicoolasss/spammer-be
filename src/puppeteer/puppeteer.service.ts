@@ -359,7 +359,7 @@ export class PuppeteerService implements OnModuleDestroy {
 
     try {
       const proxyInfo = await this.geoRegionsService.getGeoProxy(countryCode);
-      const proxy = `--proxy-server=http://${proxyInfo.host}:${proxyInfo.port} --proxy-auth=${proxyInfo.username}:${proxyInfo.password}`;
+      const proxy = `--proxy-server=http://${proxyInfo.username}:${proxyInfo.password}@${proxyInfo.host}:${proxyInfo.port}`;
       browser = await launch({
         headless: IS_PROD_ENV,
         dumpio: true,
