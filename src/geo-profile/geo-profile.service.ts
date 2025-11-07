@@ -8,6 +8,7 @@ import { unlink } from 'fs/promises';
 import { FilterQuery, Model } from 'mongoose';
 import { RedisClientType } from 'redis';
 import { REDIS_CLIENT } from 'src/redis/redis.module';
+import { detectDelimiter } from 'src/utils/detect-delimiter';
 
 import { CreateGeoProfileDto } from './dto/create-geo-profile.dto';
 import { GeoProfileDto, GeoProfileListResponseDto } from './dto/geo-profile.dto';
@@ -229,14 +230,16 @@ export class GeoProfileService {
     return;
   }
 
-  private parseCsvFile(
+  private async parseCsvFile(
     filePath: string,
     headers: string[],
     onRow: (row: Record<string, string>) => void,
   ): Promise<void> {
+    const separator = await detectDelimiter(filePath);
+  
     return new Promise((resolve, reject) => {
       createReadStream(filePath)
-        .pipe(csv({ headers, skipLines: 0 }))
+        .pipe(csv({ headers, skipLines: 0, separator }))
         .on('data', onRow)
         .on('end', resolve)
         .on('error', reject);
