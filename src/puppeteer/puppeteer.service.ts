@@ -259,8 +259,12 @@ export class PuppeteerService implements OnModuleDestroy {
       );
       throw new Error('MAX_TABS limit reached for this browser');
     }
-
+    const proxyInfo = await this.geoRegionsService.getGeoProxy(proxyGeo);
     const page = await wrapper.context.newPage();
+    await page.authenticate({
+      username: proxyInfo.username,
+      password: proxyInfo.password,
+    });
     const pageOpenTime = Date.now();
     pageOpenTimes.set(page, pageOpenTime);
     wrapper.pages.push(page);
@@ -359,7 +363,7 @@ export class PuppeteerService implements OnModuleDestroy {
 
     try {
       const proxyInfo = await this.geoRegionsService.getGeoProxy(countryCode);
-      const proxy = `--proxy-server=http://${proxyInfo.host}:${proxyInfo.port} --proxy-auth=${proxyInfo.username}:${proxyInfo.password}`;
+      const proxy = `--proxy-server=http://${proxyInfo.host}:${proxyInfo.port}`;
       browser = await launch({
         headless: IS_PROD_ENV,
         dumpio: true,
@@ -367,6 +371,16 @@ export class PuppeteerService implements OnModuleDestroy {
         args: BROWSER_ARGUMENTS(proxy, locale, timeZone),
         slowMo: 0,
         defaultViewport: null,
+      });
+      browser.on('targetcreated', async (target) => {
+        try {
+          const page = await target.page();
+          if (!page) return;
+          await page.authenticate({
+            username: proxyInfo.username,
+            password: proxyInfo.password,
+          });
+        } catch {}
       });
     } catch (e) {
       throw new InternalServerErrorException(`Failed to launch browser: ${e.message}`);
