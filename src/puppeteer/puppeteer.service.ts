@@ -371,12 +371,12 @@ export class PuppeteerService implements OnModuleDestroy {
     } catch (e) {
       throw new InternalServerErrorException(`Failed to launch browser: ${e.message}`);
     }
-    try {
-      const pages = await browser.pages();
-      await Promise.all(pages.map((p) => p.close()));
-    } catch {
-      // Ignore
-    }
+    // try {
+    //   const pages = await browser.pages();
+    //   await Promise.all(pages.map((p) => p.close()));
+    // } catch {
+    //   // Ignore
+    // }
     browserOpenTimes.set(browser, Date.now());
     browser.on('disconnected', () => {
       this.logger.warn(`[createBrowser] Browser disconnected, clearing all pools`);
