@@ -51,51 +51,18 @@ export class AgendaService implements OnModuleInit {
           isRunning: false,
         })
         .exec();
-
+  
       this.logger.info(`Found ${activeTasks.length} active tasks to process`);
-
+  
       for (const task of activeTasks) {
-        if (this.isTaskTimeToRun(task)) {
-          this.taskProcessorService.processTasks(task._id.toString()).catch((e) => {
-            this.logger.error(`Error processing task ${task._id}: ${e.message}`);
-          });
-        } else {
-          this.logger.debug(`Task ${task._id} is not scheduled to run now`);
-        }
+        this.logger.debug(`[Agenda] Starting loop for task ${task._id}`);
+        this.taskProcessorService.processTasks(task._id.toString()).catch((e) => {
+          this.logger.error(`Error processing task ${task._id}: ${e.message}`);
+        });
       }
     } catch (error) {
       this.logger.error(`Error processing active tasks: ${error.message}`, error);
     }
-  }
-
-  private isTaskTimeToRun(task: Task): boolean {
-    const now = new Date();
-
-    const currentTime = now.getHours() * 60 + now.getMinutes();
-    const [fromHour, fromMin] = task.timeFrom.split(':').map(Number);
-    const [toHour, toMin] = task.timeTo.split(':').map(Number);
-    const timeFrom = fromHour * 60 + fromMin;
-    const timeTo = toHour * 60 + toMin;
-    this.logger.debug(`Checking task time: current=${currentTime}, from=${timeFrom}, to=${timeTo}`);
-    let inTime = false;
-
-    if (timeFrom < timeTo) {
-      inTime = currentTime >= timeFrom && currentTime <= timeTo;
-    } else if (timeFrom > timeTo) {
-      inTime = currentTime >= timeFrom || currentTime <= timeTo;
-    }
-
-    if (!inTime) return false;
-
-    if (task.lastRunAt) {
-      const lastRun = new Date(task.lastRunAt).getTime();
-      const intervalMs = (task.intervalMinutes || 1) * 60 * 1000;
-      if (now.getTime() - lastRun < intervalMs) {
-        this.logger.debug(`Task interval not reached: lastRunAt=${task.lastRunAt}`);
-        return false;
-      }
-    }
-    return true;
   }
 
   private async scheduleJob(cronExpression: string, jobName: string) {

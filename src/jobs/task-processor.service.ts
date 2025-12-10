@@ -56,29 +56,58 @@ export class TaskProcessorService {
 
   async processTasks(taskId: string): Promise<void> {
     try {
-      const task = await this.taskModel.findById(taskId).exec();
-
+      let task = await this.taskModel.findById(taskId).exec();
+  
       if (!task) {
         this.logger.error(`[TASK_${taskId}] Task not found`);
         return;
       }
-
+  
       if (task.isRunning) {
         this.logger.warn(`[TASK_${taskId}] Task is already running, skipping`);
         return;
       }
-
+  
       task.isRunning = true;
       await task.save();
-
+  
       try {
-        await this.processTask(task);
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          task = await this.taskModel.findById(taskId).exec();
+  
+          if (!task) {
+            this.logger.warn(`[TASK_${taskId}] Task deleted, stopping loop`);
+            break;
+          }
+  
+          if (task.status !== TaskStatus.ACTIVE) {
+            this.logger.info(
+              `[TASK_${taskId}] Task status is ${task.status}, stopping loop`,
+            );
+            break;
+          }
+  
+          this.logger.info(`[TASK_${taskId}] 🔁 Starting iteration...`);
+  
+          await this.processTaskOnce(task);
+  
+          await this.taskModel.findByIdAndUpdate(taskId, { lastRunAt: new Date() });
+  
+          this.logger.info(`[TASK_${taskId}] ✅ Iteration finished, waiting 5 seconds...`);
+  
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+        }
       } finally {
-        task.isRunning = false;
-        await task.save();
+        const fresh = await this.taskModel.findById(taskId).exec();
+        if (fresh) {
+          fresh.isRunning = false;
+          await fresh.save();
+        }
+        this.logger.info(`[TASK_${taskId}] Loop stopped, isRunning=false`);
       }
     } catch (error) {
-      this.logger.error(`[TASK_${taskId}] Error processing task: ${error.message}`, error);
+      this.logger.error(`[TASK_${taskId}] Error in task loop: ${error.message}`, error);
     }
   }
 
@@ -110,7 +139,7 @@ export class TaskProcessorService {
     }
   }
 
-  private async processTask(task: TaskDocument): Promise<void> {
+  private async processTaskOnce(task: TaskDocument): Promise<void> {
     const { _id, url, profileId, geo } = task;
     const taskId = _id.toString();
 
@@ -318,21 +347,22 @@ export class TaskProcessorService {
     const taskId = task._id.toString();
     let finalRedirectUrl: string | null = null;
 
+    let browser: Browser | null = null;
     let page: Page | null = null;
     let finalPage: Page | null = null;
 
     try {
-      const puppeteerPage = await this.puppeteerService.acquirePage(
-        'task-processor',
+      const isolated = await this.puppeteerService.createIsolatedPage(
         geo as CountryCode,
         userAgent,
       );
-      page = puppeteerPage;
-
+      browser = isolated.browser;
+      page = isolated.page;
+    
       this.logger.info(`[TASK_${taskId}] Navigating to: ${finalUrl}`);
 
       const { page: resolvedPage, effectiveUrl } = await this.getFinalEffectivePage(
-        page.browser(),
+        browser,
         page,
         finalUrl,
       );
@@ -426,12 +456,14 @@ export class TaskProcessorService {
     } catch (error) {
       this.logger.error(`[TASK_${taskId}] Error in Puppeteer task: ${error.message}`, error);
     } finally {
-      if (finalPage && !finalPage.isClosed()) {
-        await this.puppeteerService.releasePage(finalPage, geo as CountryCode);
-      } else if (page && !page.isClosed()) {
-        await this.puppeteerService.releasePage(page, geo as CountryCode);
+      if (browser) {
+        try {
+          await browser.close();
+        } catch {
+          // ignore
+        }
       }
-
+    
       await this.updateTaskStatistics(task._id.toString(), finalRedirectUrl);
     }
   }
