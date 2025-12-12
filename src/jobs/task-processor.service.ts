@@ -4,7 +4,7 @@ import { LeadData } from '@interfaces';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Task, TaskDocument } from '@task/task.schema';
-import { IS_DEBUG_MODE, LogWrapper } from '@utils';
+import { generateFbclid, generateLeadForGeo, getRandomDefaultUserAgent, IS_DEBUG_MODE, LogWrapper } from '@utils';
 import * as fs from 'fs';
 import { Model } from 'mongoose';
 import * as path from 'path';
@@ -142,53 +142,55 @@ export class TaskProcessorService {
   private async processTaskOnce(task: TaskDocument): Promise<void> {
     const { _id, url, profileId, geo } = task;
     const taskId = _id.toString();
-
+  
     try {
-      this.logger.debug(
-        `[TASK_${taskId}] Starting task processing: url=${url}, profileId=${profileId}, geo=${geo}`,
-      );
-      const profile = await this.geoProfileModel.findById(profileId).exec();
-
-      if (!profile) {
-        this.logger.error(`[TASK_${taskId}] Profile with ID ${profileId} not found`);
-        return;
+      let leadData: LeadData;
+      let userAgent: string;
+      let fbclid: string | null = null;
+  
+      if (profileId) {
+        const profile = await this.geoProfileModel.findById(profileId).exec();
+  
+        if (!profile) {
+          this.logger.error(`[TASK_${taskId}] Profile with ID ${profileId} not found`);
+          return;
+        }
+  
+        const { leadKey, fbclidKey, userAgentKey } = profile;
+        leadData = await this.redisService.getLeadData(leadKey);
+        userAgent = await this.redisService.getUserAgentData(userAgentKey);
+        fbclid = await this.redisService.getFbclidData(fbclidKey);
+      } else {
+        this.logger.warn(
+          `[TASK_${taskId}] No profileId provided, using generated lead/userAgent/fbclid`,
+        );
+  
+        leadData = generateLeadForGeo(geo);
+  
+        userAgent = getRandomDefaultUserAgent();
+  
+        fbclid = generateFbclid();
       }
-      this.logger.debug(`[TASK_${taskId}] Loaded profile: ${JSON.stringify(profile)}`);
-
-      const { leadKey, fbclidKey, userAgentKey } = profile;
-      const leadData = await this.redisService.getLeadData(leadKey);
-      const userAgent = await this.redisService.getUserAgentData(userAgentKey);
-      const fbclid = await this.redisService.getFbclidData(fbclidKey);
-
-      // TEST
-      // leadData = {
-      //   ...leadData,
-      //   email: leadData.phone,
-      //   phone: leadData.email,
-      // };
-
+  
       let finalUrl = url;
-
       if (fbclid) {
         const separator = finalUrl.includes('?') ? '&' : '?';
         finalUrl = finalUrl + separator + 'fbclid=' + fbclid;
       }
-
+  
       this.logger.debug(`[TASK_${taskId}] Final URL: ${finalUrl}`);
       this.logger.debug(`[TASK_${taskId}] User agent: ${userAgent}`);
       this.logger.debug(`[TASK_${taskId}] Geo: ${geo}`);
       this.logger.info(`[TASK_${taskId}] Processing lead: ${JSON.stringify(leadData)}`);
-      this.logger.info(`[TASK_${taskId}] Using userAgent: ${userAgent}, fbclid: ${fbclid}`);
+  
       const TIMEOUT_MS = 11 * 60 * 1000;
-      this.logger.debug(
-        `[TASK_${taskId}] Calling runPuppeteerTask with geo=${geo}, userAgent=${userAgent}, url=${finalUrl}`,
-      );
+  
       await withTimeout(
         this.runPuppeteerTask(task, finalUrl, leadData, userAgent, false),
         TIMEOUT_MS,
         () => this.logger.error(`[TASK_${taskId}] Task timed out, closing slot`),
       );
-
+  
       await this.taskModel.findByIdAndUpdate(_id, { lastRunAt: new Date() });
       this.logger.info(`[TASK_${taskId}] Task completed. Updated lastRunAt.`);
     } catch (error) {
