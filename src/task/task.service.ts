@@ -29,7 +29,7 @@ export class TaskService {
       },
       shouldClickRedirectLink: dto.shouldClickRedirectLink ?? false,
     });
-
+  
     const task = await this.taskModel
       .findById(created._id)
       .populate<{ profileId: GeoProfileDto }>({
@@ -37,15 +37,17 @@ export class TaskService {
         select: 'name geo',
       })
       .exec();
-
-    const profile = task.profileId!;
+  
+    const profile = task.profileId
+      ? (task.profileId as unknown as GeoProfileDto)
+      : null;
+  
     return {
       _id: task._id.toString(),
       url: task.url,
       geo: task.geo,
-
       createdBy: task.createdBy,
-      profile: profile,
+      profile,
       result: {
         total: 0,
         successCount: 0,
@@ -91,13 +93,16 @@ export class TaskService {
     const items = await Promise.all(
       tasks.map(async (task) => {
         const result = await this.getTaskStatistics(task._id.toString());
+        const profile = task.profileId
+          ? (task.profileId as unknown as GeoProfileDto)
+          : null;
 
         return {
           _id: task._id.toString(),
           url: task.url,
           geo: task.geo,
           createdBy: task.createdBy,
-          profile: task.profileId,
+          profile,
           result,
           status: task.status,
           createdAt: task.createdAt.toISOString(),
@@ -125,7 +130,13 @@ export class TaskService {
       throw new Error(`Task with ID ${taskId} not found`);
     }
 
-    Object.assign(task, dto);
+    const patch: Partial<UpdateTaskDto> = { ...dto };
+
+    if (Object.prototype.hasOwnProperty.call(dto, 'profileId') && patch.profileId === null) {
+      patch.profileId = undefined;
+    }
+
+    Object.assign(task, patch);
     await task.save();
     const populatedTask = await this.taskModel
       .findById(taskId)
@@ -137,12 +148,16 @@ export class TaskService {
 
     const result = await this.getTaskStatistics(populatedTask!._id.toString());
 
+    const profile = populatedTask?.profileId
+      ? (populatedTask.profileId as unknown as GeoProfileDto)
+      : null;
+
     return {
       _id: populatedTask!._id.toString(),
       url: populatedTask!.url,
       geo: populatedTask!.geo,
       createdBy: populatedTask!.createdBy,
-      profile: populatedTask!.profileId,
+      profile,
       result,
       status: populatedTask!.status,
       createdAt: populatedTask!.createdAt.toISOString(),

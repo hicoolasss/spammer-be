@@ -5,7 +5,7 @@ export interface TaskDto {
   _id: string;
   url: string;
   geo: string;
-  profile: GeoProfileDto;
+  profile?: GeoProfileDto;
   result?: TaskStatisticsDto;
   status: TaskStatus;
   createdBy: string;
@@ -27,7 +27,7 @@ export interface TaskStatisticsDto {
 export interface CreateTaskDto {
   url: string;
   geo: string;
-  profileId: string;
+  profileId?: string;
   applicationsNumber: number;
   shouldClickRedirectLink?: boolean;
 }
@@ -35,7 +35,7 @@ export interface CreateTaskDto {
 export interface UpdateTaskDto {
   url?: string;
   geo?: string;
-  profileId?: string;
+  profileId?: string | null;
   applicationsNumber?: number;
   shouldClickRedirectLink?: boolean;
 }
