@@ -539,6 +539,7 @@ export class PuppeteerService implements OnModuleDestroy {
           '--disable-blink-features=AutomationControlled',
           '--no-sandbox',
           '--disable-setuid-sandbox',
+          '--disable-webrtc',
         ],
         slowMo: 0,
         defaultViewport: null,
