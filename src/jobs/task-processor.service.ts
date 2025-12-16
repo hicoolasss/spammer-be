@@ -399,7 +399,7 @@ export class TaskProcessorService {
       await this.takeScreenshot(finalPage, taskId, 'before-form-fill');
 
       await this.safeExecute(finalPage, () =>
-        this.fillFormWithData(finalPage, leadData, humanize, taskId),
+        this.fillFormWithData(finalPage, leadData, humanize, taskId, geo),
       );
 
       if (effectiveUrl.includes('facebook.com/flx/warn')) {
@@ -921,6 +921,7 @@ export class TaskProcessorService {
     leadData: LeadData,
     humanize = true,
     taskId?: string,
+    geo?: string,
   ): Promise<void> {
     const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
     this.logger.info(`${taskPrefix} Filling form with lead data using AI analysis...`);
@@ -1066,6 +1067,22 @@ export class TaskProcessorService {
             continue;
           }
           await new Promise((resolve) => setTimeout(resolve, 500 + Math.random() * 500));
+
+          if (field.type === 'phone' && geo) {
+            const appliedIntl = await this.trySelectPhoneCountryIntlTelInput(
+              page,
+              analysis.bestForm.formIndex,
+              field.selector,
+              geo,
+              taskPrefix,
+            );
+          
+            this.logger.info(
+              `${taskPrefix} Phone country selector (intl-tel-input): ${appliedIntl ? 'selected' : 'not found/failed'}`,
+            );
+          
+            await new Promise((r) => setTimeout(r, 250));
+          }         
 
           if (humanize && page.mouse) {
             const rect = await page.evaluate((selector) => {
@@ -1302,6 +1319,69 @@ export class TaskProcessorService {
         return;
       }
       this.logger.error(`${taskPrefix} Error filling form with AI: ${error.message}`, error);
+    }
+  }
+
+  private async trySelectPhoneCountryIntlTelInput(
+    page: Page,
+    formIndex: number,
+    phoneSelector: string,
+    geo: string,
+    taskPrefix: string,
+  ): Promise<boolean> {
+    const iso2 = (geo || '').trim().toLowerCase();
+    if (!iso2) return false;
+  
+    try {
+      const res = await page.evaluate(async ({ formIndex, phoneSelector, iso2 }) => {
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  
+        const forms = Array.from(document.querySelectorAll('form'));
+        const form = forms[formIndex];
+        if (!form) return { ok: false, reason: 'form_not_found' };
+  
+        const input = form.querySelector(phoneSelector) as HTMLInputElement | null;
+        if (!input) return { ok: false, reason: 'phone_input_not_found' };
+  
+        const itiRoot = input.closest('.iti') as HTMLElement | null;
+        if (!itiRoot) return { ok: false, reason: 'iti_root_not_found' };
+  
+        const btn = itiRoot.querySelector<HTMLElement>('button.iti__selected-country[role="combobox"]');
+        if (!btn) return { ok: false, reason: 'selected_country_button_not_found' };
+  
+        const dropdownId = btn.getAttribute('aria-controls');
+        btn.click();
+        await sleep(150);
+  
+        const dropdown =
+          (dropdownId ? document.getElementById(dropdownId) : null) ||
+          document.querySelector<HTMLElement>('.iti__dropdown-content, .iti__country-list');
+  
+        if (!dropdown) return { ok: false, reason: 'dropdown_not_found' };
+  
+        const option =
+          dropdown.querySelector<HTMLElement>(`.iti__country[data-country-code="${iso2}"]`) ||
+          document.querySelector<HTMLElement>(`.iti__country[data-country-code="${iso2}"]`);
+  
+        if (!option) return { ok: false, reason: 'country_option_not_found' };
+  
+        option.click();
+        await sleep(100);
+  
+        const dial = itiRoot.querySelector<HTMLElement>('.iti__selected-dial-code')?.textContent?.trim() || '';
+        return { ok: dial.length > 0, reason: dial.length > 0 ? 'selected' : 'dial_code_empty' };
+      }, { formIndex, phoneSelector, iso2 });
+  
+      if (!res?.ok) {
+        this.logger.warn(`${taskPrefix} intl-tel-input select failed: ${res?.reason}`);
+        return false;
+      }
+  
+      this.logger.info(`${taskPrefix} intl-tel-input country selected for geo=${geo}`);
+      return true;
+    } catch (e) {
+      this.logger.warn(`${taskPrefix} intl-tel-input select error: ${e.message}`);
+      return false;
     }
   }
 }
