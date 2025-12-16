@@ -375,7 +375,7 @@ export class TaskProcessorService {
         return;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 60000));
+      await new Promise((resolve) => setTimeout(resolve, 15000));
 
       if (shouldClickRedirectLink) {
         this.logger.info(
@@ -1262,10 +1262,10 @@ export class TaskProcessorService {
       this.logger.info(`${taskPrefix} 🎉 Form submit result: ${submitResult}`);
 
       this.logger.info(
-        `${taskPrefix} Waiting 90 seconds after form submission for processing and redirect...`,
+        `${taskPrefix} Waiting 20 seconds after form submission for processing and redirect...`,
       );
 
-      await new Promise((resolve) => setTimeout(resolve, 90000));
+      await new Promise((resolve) => setTimeout(resolve, 20000));
 
       await this.takeScreenshot(page, taskId, 'thank-you');
 
