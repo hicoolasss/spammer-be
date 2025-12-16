@@ -378,11 +378,8 @@ export class TaskProcessorService {
       await new Promise((resolve) => setTimeout(resolve, 15000));
 
       if (shouldClickRedirectLink) {
-        this.logger.info(
-          `[TASK_${taskId}] shouldClickRedirectLink=true: looking for redirect link after page load`,
-        );
-        await this.tryClickRedirectLink(finalPage, taskId);
-        await this.tryClickProceedButton(finalPage, taskId);
+        this.logger.info(`[TASK_${taskId}] redirect mode enabled`);
+        finalPage = await this.trySwitchToOffer(browser, finalPage, taskId);
       }
 
       await this.safeExecute(finalPage, () =>
@@ -534,87 +531,87 @@ export class TaskProcessorService {
     }
   }
 
-  private async tryClickProceedButton(page: Page, taskId: string) {
-    const taskPrefix = `[TASK_${taskId}]`;
-    try {
-      const beforeUrl = page.url();
-      const result = await page.evaluate(() => {
-        const texts = ['перейти', 'далее', 'continue', 'next', 'go', 'продовжити', 'продолжить'];
-        const buttons = Array.from(
-          document.querySelectorAll(
-            'button, a[role="button"], input[type=button], input[type=submit]',
-          ),
-        );
-        // @ts-ignore
-        window.__debugButtons = buttons.map((btn) => {
-          let text = '';
-          if ('value' in btn) {
-            text = (btn as HTMLInputElement).value || '';
-          } else {
-            text = btn.textContent || '';
-          }
-          return { text: text.trim(), tag: btn.tagName, class: btn.className };
-        });
-        const target = buttons.find((btn) => {
-          let text = '';
-          if ('value' in btn) {
-            text = (btn as HTMLInputElement).value || '';
-          } else {
-            text = btn.textContent || '';
-          }
-          text = text.toLowerCase();
-          return texts.some((t) => text.includes(t));
-        });
-        if (target) {
-          // @ts-ignore
-          window.__clickedButton = {
-            text: (target.textContent || (target as HTMLInputElement).value || '').trim(),
-            tag: target.tagName,
-            class: target.className,
-          };
-          (target as HTMLElement).click();
-          return true;
-        }
-        return false;
-      });
-      const debugButtons = (await page.evaluate('window.__debugButtons')) as Array<{
-        tag: string;
-        class: string;
-        text: string;
-      }>;
-      this.logger.info(
-        `${taskPrefix} [tryClickProceedButton] Found buttons: ${debugButtons.length}`,
-      );
-      debugButtons.forEach((b, i) =>
-        this.logger.info(
-          `${taskPrefix} [tryClickProceedButton] [${i}] tag=${b.tag} class=${b.class} text=${b.text}`,
-        ),
-      );
-      if (result) {
-        const clicked = (await page.evaluate('window.__clickedButton')) as {
-          tag: string;
-          class: string;
-          text: string;
-        };
-        this.logger.info(
-          `${taskPrefix} [tryClickProceedButton] Clicked button: tag=${clicked.tag} class=${clicked.class} text=${clicked.text}`,
-        );
-        await page
-          .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 })
-          .catch(() => {});
-        const afterUrl = page.url();
-        this.logger.info(
-          `${taskPrefix} [tryClickProceedButton] URL before: ${beforeUrl}, after: ${afterUrl}`,
-        );
-      } else {
-        this.logger.warn(
-          `${taskPrefix} [tryClickProceedButton] Could not find "Go/Next/Continue" button on the site.`,
-        );
-      }
-    } catch (e) {
-      this.logger.warn(`${taskPrefix} Error trying to click proceed button: ${e.message}`);
-    }
-  }
+  // private async tryClickProceedButton(page: Page, taskId: string) {
+  //   const taskPrefix = `[TASK_${taskId}]`;
+  //   try {
+  //     const beforeUrl = page.url();
+  //     const result = await page.evaluate(() => {
+  //       const texts = ['перейти', 'далее', 'continue', 'next', 'go', 'продовжити', 'продолжить'];
+  //       const buttons = Array.from(
+  //         document.querySelectorAll(
+  //           'button, a[role="button"], input[type=button], input[type=submit]',
+  //         ),
+  //       );
+  //       // @ts-ignore
+  //       window.__debugButtons = buttons.map((btn) => {
+  //         let text = '';
+  //         if ('value' in btn) {
+  //           text = (btn as HTMLInputElement).value || '';
+  //         } else {
+  //           text = btn.textContent || '';
+  //         }
+  //         return { text: text.trim(), tag: btn.tagName, class: btn.className };
+  //       });
+  //       const target = buttons.find((btn) => {
+  //         let text = '';
+  //         if ('value' in btn) {
+  //           text = (btn as HTMLInputElement).value || '';
+  //         } else {
+  //           text = btn.textContent || '';
+  //         }
+  //         text = text.toLowerCase();
+  //         return texts.some((t) => text.includes(t));
+  //       });
+  //       if (target) {
+  //         // @ts-ignore
+  //         window.__clickedButton = {
+  //           text: (target.textContent || (target as HTMLInputElement).value || '').trim(),
+  //           tag: target.tagName,
+  //           class: target.className,
+  //         };
+  //         (target as HTMLElement).click();
+  //         return true;
+  //       }
+  //       return false;
+  //     });
+  //     const debugButtons = (await page.evaluate('window.__debugButtons')) as Array<{
+  //       tag: string;
+  //       class: string;
+  //       text: string;
+  //     }>;
+  //     this.logger.info(
+  //       `${taskPrefix} [tryClickProceedButton] Found buttons: ${debugButtons.length}`,
+  //     );
+  //     debugButtons.forEach((b, i) =>
+  //       this.logger.info(
+  //         `${taskPrefix} [tryClickProceedButton] [${i}] tag=${b.tag} class=${b.class} text=${b.text}`,
+  //       ),
+  //     );
+  //     if (result) {
+  //       const clicked = (await page.evaluate('window.__clickedButton')) as {
+  //         tag: string;
+  //         class: string;
+  //         text: string;
+  //       };
+  //       this.logger.info(
+  //         `${taskPrefix} [tryClickProceedButton] Clicked button: tag=${clicked.tag} class=${clicked.class} text=${clicked.text}`,
+  //       );
+  //       await page
+  //         .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 })
+  //         .catch(() => {});
+  //       const afterUrl = page.url();
+  //       this.logger.info(
+  //         `${taskPrefix} [tryClickProceedButton] URL before: ${beforeUrl}, after: ${afterUrl}`,
+  //       );
+  //     } else {
+  //       this.logger.warn(
+  //         `${taskPrefix} [tryClickProceedButton] Could not find "Go/Next/Continue" button on the site.`,
+  //       );
+  //     }
+  //   } catch (e) {
+  //     this.logger.warn(`${taskPrefix} Error trying to click proceed button: ${e.message}`);
+  //   }
+  // }
 
   private async safeExecute(page: Page, action: () => Promise<void>): Promise<void> {
     try {
@@ -1303,5 +1300,262 @@ export class TaskProcessorService {
       }
       this.logger.error(`${taskPrefix} Error filling form with AI: ${error.message}`, error);
     }
+  }
+
+  private async detectOfferUrl(page: Page): Promise<string | null> {
+    return page.evaluate(() => {
+      const base = location.href;
+      const host = location.hostname;
+  
+      const badText = (t: string) =>
+        /(privacy|policy|terms|cookies|contact|about)/i.test(t);
+  
+      const normalize = (href: string) => {
+        try { return new URL(href, base).href; } catch { return null; }
+      };
+  
+      const aCandidates = Array.from(document.querySelectorAll('a[href]'))
+        .map((a) => ({
+          href: a.getAttribute('href') || '',
+          text: (a.textContent || '').trim().slice(0, 120),
+          rect: a.getBoundingClientRect(),
+        }))
+        .filter(x => x.href && !x.href.startsWith('#') && !x.href.startsWith('javascript:') && !x.href.startsWith('mailto:'))
+        .map(x => ({ ...x, url: normalize(x.href) }))
+        .filter((x): x is typeof x & { url: string } => !!x.url)
+        .filter(x => !badText(x.text));
+  
+      if (!aCandidates.length) return null;
+  
+      const visible = (r: DOMRect) =>
+        r.width > 0 && r.height > 0 &&
+        r.top < innerHeight && r.bottom > 0 &&
+        r.left < innerWidth && r.right > 0;
+  
+      const scored = aCandidates
+        .map(x => {
+          let score = 0;
+          if (visible(x.rect)) score += 2;
+          try { if (new URL(x.url).hostname !== host) score += 3; } catch {}
+          if (/(continue|next|go|start|get|claim|register|sign|submit|open)/i.test(x.text)) score += 2;
+          return { ...x, score };
+        })
+        .sort((a, b) => b.score - a.score);
+  
+      return scored[0]?.url || null;
+    });
+  }
+
+  private async trySwitchToOffer(browser: Browser, page: Page, taskId: string): Promise<Page> {
+    const pfx = `[TASK_${taskId}]`;
+    const beforeUrl = page.url();
+  
+    let switched = await this.clickBestRedirectCandidate(browser, page, taskId);
+    if (switched) return switched;
+  
+    switched = await this.clickBestCtaCandidate(browser, page, taskId);
+    if (switched) return switched;
+  
+    const offerUrl = await this.detectOfferUrl(page).catch(() => null);
+    if (offerUrl && offerUrl !== beforeUrl) {
+      this.logger.info(`${pfx} [redirect] Fallback goto offerUrl=${offerUrl}`);
+      await page.goto(offerUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => {});
+      return page;
+    }
+  
+    this.logger.warn(`${pfx} [redirect] Could not switch to offer (no candidates)`);
+    return page;
+  }
+
+  private async clickBestRedirectCandidate(
+    browser: Browser,
+    page: Page,
+    taskId: string,
+  ): Promise<Page | null> {
+    const pfx = `[TASK_${taskId}]`;
+    const before = page.url();
+
+    const candidate = await page.evaluate(() => {
+      const host = location.hostname;
+      const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+
+      const normalize = (a: HTMLAnchorElement) => {
+        try { return new URL(a.getAttribute('href') || '', location.href).href; } catch { return null; }
+      };
+
+      const list = anchors
+        .map(a => ({
+          url: normalize(a),
+          target: (a.getAttribute('target') || '').toLowerCase(),
+          text: (a.textContent || '').trim().slice(0, 120),
+          rect: a.getBoundingClientRect(),
+        }))
+        .filter(x => !!x.url)
+        .filter(x => !x.url!.startsWith('javascript:') && !x.url!.startsWith('mailto:') && !x.url!.includes('#'))
+        .map(x => ({
+          ...x,
+          isExternal: (() => { try { return new URL(x.url!).hostname !== host; } catch { return false; } })(),
+          isVisible: x.rect.width > 0 && x.rect.height > 0 && x.rect.top < innerHeight && x.rect.bottom > 0,
+        }))
+        .map(x => ({
+          ...x,
+          score: (x.isExternal ? 3 : 0) + (x.target === '_blank' ? 2 : 0) + (x.isVisible ? 1 : 0),
+        }))
+        .sort((a, b) => b.score - a.score);
+
+      return list[0]?.url || null;
+    });
+
+    if (!candidate) {
+      this.logger.info(`${pfx} [redirect-link] no candidate`);
+      return null;
+    }
+
+    this.logger.info(`${pfx} [redirect-link] candidate=${candidate}`);
+
+    const popupOrNav = await this.clickUrlAndResolvePage(browser, page, candidate, taskId);
+    if (popupOrNav) return popupOrNav;
+
+    if (page.url() !== before) return page;
+    return null;
+  }
+
+  private async clickBestCtaCandidate(
+    browser: Browser,
+    page: Page,
+    taskId: string,
+  ): Promise<Page | null> {
+    const pfx = `[TASK_${taskId}]`;
+    const before = page.url();
+  
+    const clicked = await page.evaluate(() => {
+      const ctaWords = [
+        'continue','next','go','start','get','claim','register','sign','submit','open',
+        'продовжити','перейти','далі','продолжить','далее','отправить','регистрация'
+      ];
+  
+      const badWords = ['privacy','policy','terms','cookies','контакты','about'];
+  
+      const nodes = Array.from(document.querySelectorAll(
+        'button, a[role="button"], input[type="button"], input[type="submit"], [role="button"], [onclick]',
+      )) as HTMLElement[];
+  
+      const pickText = (el: HTMLElement) => {
+        const aria = el.getAttribute('aria-label') || '';
+        const txt = (el.textContent || '').trim();
+        const val = (el as any).value ? String((el as any).value) : '';
+        return `${aria} ${txt} ${val}`.trim().toLowerCase();
+      };
+  
+      const visible = (el: HTMLElement) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.top < innerHeight && r.bottom > 0;
+      };
+  
+      const scored = nodes
+        .map(el => {
+          const t = pickText(el);
+          let score = 0;
+          if (visible(el)) score += 2;
+          if (ctaWords.some(w => t.includes(w))) score += 3;
+          if (badWords.some(w => t.includes(w))) score -= 5;
+          return { el, score, t };
+        })
+        .sort((a, b) => b.score - a.score);
+  
+      const best = scored[0];
+      if (!best || best.score <= 0) return false;
+  
+      (best.el as HTMLElement).click();
+      return true;
+    });
+  
+    if (!clicked) {
+      this.logger.info(`${pfx} [cta] no candidate clicked`);
+      return null;
+    }
+  
+    const popupOrNav = await this.resolveAfterUserAction(browser, page, before, taskId);
+    if (popupOrNav) return popupOrNav;
+  
+    if (page.url() !== before) return page;
+    return null;
+  }
+
+  private async clickUrlAndResolvePage(
+    browser: Browser,
+    page: Page,
+    url: string,
+    taskId: string,
+  ): Promise<Page | null> {
+    const before = page.url();
+  
+    await page.evaluate((u) => {
+      const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+      const a = anchors.find(x => {
+        try { return new URL(x.getAttribute('href') || '', location.href).href === u; } catch { return false; }
+      });
+      if (a) (a as HTMLElement).click();
+    }, url).catch(() => {});
+  
+    return this.resolveAfterUserAction(browser, page, before, taskId);
+  }
+  
+  private async resolveAfterUserAction(
+    browser: Browser,
+    page: Page,
+    beforeUrl: string,
+    taskId: string,
+  ): Promise<Page | null> {
+    const pfx = `[TASK_${taskId}]`;
+  
+    const popupPromise = new Promise<Page | null>((resolve) => {
+      const handler = async (target: any) => {
+        try {
+          if (target.type() !== 'page') return;
+          const p = await target.page();
+          browser.off('targetcreated', handler);
+          resolve(p);
+        } catch {
+          // ignore
+        }
+      };
+      browser.on('targetcreated', handler);
+  
+      setTimeout(() => {
+        browser.off('targetcreated', handler);
+        resolve(null);
+      }, 5000);
+    });
+  
+    const navPromise = page
+      .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 })
+      .then(() => 'nav')
+      .catch(() => null);
+  
+    const spaPromise = new Promise<'spa' | null>((resolve) => {
+      const started = Date.now();
+      const tick = () => {
+        if (page.isClosed()) return resolve(null);
+        if (page.url() !== beforeUrl) return resolve('spa');
+        if (Date.now() - started > 1500) return resolve(null);
+        setTimeout(tick, 100);
+      };
+      tick();
+    });
+  
+    const winner = await Promise.race([popupPromise, navPromise, spaPromise]);
+  
+    if (winner && typeof winner !== 'string' && !winner.isClosed()) {
+      this.logger.info(`${pfx} [redirect] switched via popup: ${winner.url()}`);
+      return winner;
+    }
+  
+    if (page.url() !== beforeUrl) {
+      this.logger.info(`${pfx} [redirect] switched via same-page: ${page.url()}`);
+      return page;
+    }
+  
+    return null;
   }
 }
