@@ -25,7 +25,7 @@ export class TaskService {
       applicationsNumber: dto.applicationsNumber,
       result: {
         total: 0,
-        success: {},
+        redirects: [],
       },
       shouldClickRedirectLink: dto.shouldClickRedirectLink ?? false,
     });
@@ -167,27 +167,19 @@ export class TaskService {
   }
 
   private async getTaskStatistics(taskId: string): Promise<TaskStatisticsDto> {
-    const task = await this.taskModel.findById(taskId).exec();
-
-    if (!task) {
-      throw new Error(`Task with ID ${taskId} not found`);
-    }
-
-    const result = task.result || { total: 0, success: {} };
-    const successObj = (result.success as Record<string, number>) || {};
-
-    const successCount = Object.values(successObj).reduce((sum, count) => sum + count, 0);
-
-    const redirects = Object.entries(successObj)
-      .map(([url, count]) => ({
-        url,
-        count,
-      }))
-      .sort((a, b) => b.count - a.count);
-
+    const task = await this.taskModel.findById(taskId).lean().exec();
+    if (!task) throw new Error(`Task with ID ${taskId} not found`);
+  
+    const result = task.result ?? { total: 0, redirects: [] };
+  
+    const redirects = (result.redirects ?? []).map(r => ({
+      url: r.url,
+      at: new Date(r.at).toISOString(),
+    }));
+  
     return {
-      total: result.total || 0,
-      successCount,
+      total: result.total ?? 0,
+      successCount: redirects.length,
       redirects,
     };
   }
