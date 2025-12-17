@@ -1359,6 +1359,8 @@ export class TaskProcessorService {
       this.logger.warn(`${taskPrefix} intl-tel-input select error: ${e.message}`);
       return false;
     }
+  }
+
   private async detectOfferUrl(page: Page): Promise<string | null> {
     return page.evaluate(() => {
       const base = location.href;
