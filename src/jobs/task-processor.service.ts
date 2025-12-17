@@ -210,67 +210,46 @@ export class TaskProcessorService {
   ): Promise<void> {
     try {
       this.logger.debug(`[TASK_${taskId}] Starting statistics update...`);
-
-      const task = await this.taskModel.findById(taskId).exec();
-
+      this.logger.debug(
+        `[TASK_${taskId}] Incoming redirect: ${finalRedirectUrl ?? 'null'}`,
+      );
+  
+      // Достаём только url (лёгкий запрос)
+      const task = await this.taskModel
+        .findById(taskId)
+        .select('url')
+        .lean()
+        .exec();
+  
       if (!task) {
         this.logger.error(`[TASK_${taskId}] Task not found for statistics update`);
         return;
       }
-      this.logger.debug(`[TASK_${taskId}] Current result: ${JSON.stringify(task.result)}`);
-
-      if (!task.result) {
-        this.logger.warn(
-          `[TASK_${taskId}] Task result is null, initializing default result structure`,
-        );
-        task.result = { total: 0, success: {} };
-      }
-
-      const currentTotal = task.result?.total || 0;
-      task.result.total = currentTotal + 1;
-
-      this.logger.debug(
-        `[TASK_${taskId}] Updated total from ${currentTotal} to ${task.result.total}`,
-      );
-
-      if (!task.result?.success) {
-        task.result.success = {};
-        this.logger.debug(`[TASK_${taskId}] Initialized empty success object`);
-      }
-
+  
+      const update: Record<string, any> = {
+        $inc: { 'result.total': 1 },
+      };
+  
       if (finalRedirectUrl && finalRedirectUrl !== task.url) {
-        let foundKey: string | undefined;
-
-        for (const key of Object.keys(task.result.success as Record<string, number>)) {
-          try {
-            if (decodeURIComponent(key) === finalRedirectUrl) {
-              foundKey = key;
-              break;
-            }
-          } catch {
-            // Ignore
-          }
-        }
-
-        const redirectKey = foundKey || encodeURIComponent(finalRedirectUrl);
-        const currentCount = (task.result.success as Record<string, number>)[redirectKey] || 0;
-        (task.result.success as Record<string, number>)[redirectKey] = currentCount + 1;
-
-        task.markModified('result.success');
-
-        this.logger.info(`[TASK_${taskId}] Successful redirect to: ${finalRedirectUrl}`);
+        update.$push = {
+          'result.redirects': {
+            $each: [{ url: finalRedirectUrl, at: new Date() }],
+            $position: 0,
+            $slice: 500,
+          },
+        };
       }
-
-      this.logger.debug(
-        `[TASK_${taskId}] About to save task with result: ${JSON.stringify(task.result)}`,
-      );
-      await task.save();
-
+  
+      await this.taskModel.updateOne({ _id: taskId }, update).exec();
+  
       this.logger.info(
-        `[TASK_${taskId}] Updated statistics: total=${task.result.total}, success=${JSON.stringify(task.result.success)}`,
+        `[TASK_${taskId}] Updated statistics: total+1${finalRedirectUrl && finalRedirectUrl !== task.url ? `, redirect event added` : ''}`,
       );
     } catch (error) {
-      this.logger.error(`[TASK_${taskId}] Error updating task statistics: ${error.message}`, error);
+      this.logger.error(
+        `[TASK_${taskId}] Error updating task statistics: ${error.message}`,
+        error,
+      );
     }
   }
 
