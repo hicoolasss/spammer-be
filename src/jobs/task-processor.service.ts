@@ -92,6 +92,41 @@ export class TaskProcessorService {
     });
   }
 
+  private async processTaskLoop(taskId: string): Promise<void> {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const task = await this.taskModel.findById(taskId).exec();
+  
+      if (!task) {
+        this.logger.warn(`[TASK_${taskId}] Task deleted, stopping loop`);
+        break;
+      }
+  
+      if (task.status !== TaskStatus.ACTIVE) {
+        this.logger.info(`[TASK_${taskId}] status=${task.status}, stopping loop`);
+        break;
+      }
+  
+      this.logger.info(`[TASK_${taskId}] 🔁 Starting iteration...`);
+  
+      try {
+        await this.processTask(task);
+        await this.taskModel.findByIdAndUpdate(taskId, { lastRunAt: new Date() }).exec();
+      } catch (e: any) {
+        this.logger.error(`[TASK_${taskId}] Iteration error: ${e.message}`, e);
+      }
+  
+      const fresh = await this.taskModel.findById(taskId).select('status').exec();
+      if (!fresh || fresh.status !== TaskStatus.ACTIVE) {
+        this.logger.info(`[TASK_${taskId}] Stopped before sleep`);
+        break;
+      }
+  
+      this.logger.info(`[TASK_${taskId}] ✅ Iteration finished, waiting 5 seconds...`);
+      await this.sleep(5000);
+    }
+  }
+
   private async processQueue(): Promise<void> {
     if (this.isProcessing || this.currentRunningTasks >= this.MAX_CONCURRENT_TASKS) {
       return;
@@ -125,140 +160,153 @@ export class TaskProcessorService {
 
   private async executeTaskDirectly(taskId: string): Promise<void> {
     try {
-      const task = await this.taskModel.findById(taskId).exec();
+      const lockedTask = await this.taskModel
+        .findOneAndUpdate(
+          { _id: taskId, status: TaskStatus.ACTIVE, isRunning: false },
+          { $set: { isRunning: true } },
+          { new: true },
+        )
+        .exec();
 
-      if (!task) {
-        this.logger.error(`[TASK_${taskId}] Task not found`);
-        throw new Error('Task not found');
-      }
+      if (!lockedTask) {
+        const exists = await this.taskModel.findById(taskId).select('status isRunning').exec();
+        if (!exists) {
+          this.logger.error(`[TASK_${taskId}] Task not found`);
+          throw new Error('Task not found');
+        }
 
-      if (task.status !== TaskStatus.ACTIVE) {
-        this.logger.warn(`[TASK_${taskId}] Task is not active (status: ${task.status}), skipping`);
-        return;
-      }
+        if (exists.status !== TaskStatus.ACTIVE) {
+          this.logger.warn(
+            `[TASK_${taskId}] Task is not active (status: ${exists.status}), skipping`,
+          );
+          return;
+        }
 
-      if (task.isRunning) {
         this.logger.warn(`[TASK_${taskId}] Task is already running, skipping`);
         return;
       }
 
-      const updateResult = await this.taskModel
-        .findByIdAndUpdate(taskId, { isRunning: true }, { new: true })
-        .exec();
-
-      if (!updateResult) {
-        this.logger.error(`[TASK_${taskId}] Failed to set isRunning flag - task not found`);
-        throw new Error('Failed to set isRunning flag');
-      }
-
-      if (!updateResult.isRunning) {
-        this.logger.error(`[TASK_${taskId}] Failed to set isRunning flag`);
-        throw new Error('Failed to set isRunning flag');
-      }
+      this.logger.info(`[TASK_${taskId}] Locked task, starting loop...`);
 
       try {
-        await this.processTask(updateResult);
+        await this.processTaskLoop(taskId);
       } finally {
         try {
           await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
-          this.logger.info(`[TASK_${taskId}] Task execution completed, isRunning flag reset`);
-        } catch (saveError) {
+          this.logger.info(`[TASK_${taskId}] Loop stopped, isRunning flag reset`);
+        } catch (saveError: any) {
           this.logger.error(
             `[TASK_${taskId}] Failed to reset isRunning flag: ${saveError.message}`,
           );
           try {
             await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
-          } catch (retryError) {
+          } catch (retryError: any) {
             this.logger.error(
               `[TASK_${taskId}] Failed to reset isRunning flag on retry: ${retryError.message}`,
             );
           }
         }
+
+        try {
+          this.puppeteerService.clearTaskProxyCursor(taskId);
+        } catch { /* empty */ }
       }
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`[TASK_${taskId}] Error processing task: ${error.message}`, error);
+
       try {
         await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
         this.logger.info(`[TASK_${taskId}] Reset isRunning flag after error`);
-      } catch (resetError) {
+      } catch (resetError: any) {
         this.logger.error(
           `[TASK_${taskId}] Failed to reset isRunning after error: ${resetError.message}`,
         );
       }
+
+      try {
+        this.puppeteerService.clearTaskProxyCursor(taskId);
+      } catch { /* empty */ }
+
       throw error;
     }
   }
 
   private async executeTask(queuedTask: QueuedTask): Promise<void> {
     const { taskId, resolve, reject } = queuedTask;
-
+  
     try {
-      const task = await this.taskModel.findById(taskId).exec();
-
-      if (!task) {
-        this.logger.error(`[TASK_${taskId}] Task not found`);
-        reject(new Error('Task not found'));
-        return;
-      }
-
-      if (task.status !== TaskStatus.ACTIVE) {
-        this.logger.warn(`[TASK_${taskId}] Task is not active (status: ${task.status}), skipping`);
-        resolve();
-        return;
-      }
-
-      if (task.isRunning) {
+      const lockedTask = await this.taskModel
+        .findOneAndUpdate(
+          { _id: taskId, status: TaskStatus.ACTIVE, isRunning: false },
+          { $set: { isRunning: true } },
+          { new: true },
+        )
+        .exec();
+  
+      if (!lockedTask) {
+        const exists = await this.taskModel.findById(taskId).select('status isRunning').exec();
+  
+        if (!exists) {
+          this.logger.error(`[TASK_${taskId}] Task not found`);
+          reject(new Error('Task not found'));
+          return;
+        }
+  
+        if (exists.status !== TaskStatus.ACTIVE) {
+          this.logger.warn(
+            `[TASK_${taskId}] Task is not active (status: ${exists.status}), skipping`,
+          );
+          resolve();
+          return;
+        }
+  
         this.logger.warn(`[TASK_${taskId}] Task is already running, skipping`);
         resolve();
         return;
       }
-
-      const updateResult = await this.taskModel
-        .findByIdAndUpdate(taskId, { isRunning: true }, { new: true })
-        .exec();
-
-      if (!updateResult) {
-        this.logger.error(`[TASK_${taskId}] Failed to set isRunning flag - task not found`);
-        reject(new Error('Failed to set isRunning flag'));
-        return;
-      }
-
-      if (!updateResult.isRunning) {
-        this.logger.error(`[TASK_${taskId}] Failed to set isRunning flag`);
-        reject(new Error('Failed to set isRunning flag'));
-        return;
-      }
-
+  
+      this.logger.info(`[TASK_${taskId}] Locked task from queue, starting loop...`);
+  
       try {
-        await this.processTask(updateResult);
+        await this.processTaskLoop(taskId);
         resolve();
       } finally {
         try {
           await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
-          this.logger.info(`[TASK_${taskId}] Task execution completed, isRunning flag reset`);
-        } catch (saveError) {
+          this.logger.info(`[TASK_${taskId}] Loop stopped, isRunning flag reset`);
+        } catch (saveError: any) {
           this.logger.error(
             `[TASK_${taskId}] Failed to reset isRunning flag: ${saveError.message}`,
           );
           try {
             await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
-          } catch (retryError) {
+          } catch (retryError: any) {
             this.logger.error(
               `[TASK_${taskId}] Failed to reset isRunning flag on retry: ${retryError.message}`,
             );
           }
         }
+  
+        try {
+          this.puppeteerService.clearTaskProxyCursor(taskId);
+        } catch { /* empty */ }
       }
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`[TASK_${taskId}] Error processing task: ${error.message}`, error);
+  
       try {
         await this.taskModel.findByIdAndUpdate(taskId, { isRunning: false }).exec();
         this.logger.info(`[TASK_${taskId}] Reset isRunning flag after error`);
-      } catch (resetError) {
+      } catch (resetError: any) {
         this.logger.error(
           `[TASK_${taskId}] Failed to reset isRunning after error: ${resetError.message}`,
         );
       }
+  
+      try {
+        this.puppeteerService.clearTaskProxyCursor(taskId);
+      } catch { /* empty */ }
+  
       reject(error);
     }
   }
@@ -282,10 +330,6 @@ export class TaskProcessorService {
     this.taskQueue = [];
     this.logger.info(`[TASK_PROCESSOR] Queue cleared. Removed ${queueLength} tasks`);
     return queueLength;
-  }
-
-  getBrowserStats() {
-    return this.puppeteerService.getBrowserStats();
   }
 
   private async takeScreenshot(page: Page, taskId: string, stage: string): Promise<void> {
@@ -502,86 +546,87 @@ export class TaskProcessorService {
   ): Promise<void> {
     const { geo, shouldClickRedirectLink } = task;
     const taskId = task._id.toString();
+  
     let finalRedirectUrl: string | null = null;
-
+    let afterSubmitUrl: string | null = null;
+  
+    let browser: Browser | null = null;
     let page: Page | null = null;
     let finalPage: Page | null = null;
-    let afterSubmitUrl;
-
+  
     try {
-      const puppeteerPage = await this.puppeteerService.acquirePage(
-        'task-processor',
+      const isolated = await this.puppeteerService.createIsolatedPage(
+        taskId,
         geo as CountryCode,
         userAgent,
         finalUrl,
       );
-      page = puppeteerPage;
-
+  
+      browser = isolated.browser;
+      page = isolated.page;
+  
       this.logger.info(`[TASK_${taskId}] Navigating to: ${finalUrl}`);
-
-      const { page: resolvedPage } = await this.getFinalEffectivePage(
-        page.browser(),
-        page,
-        finalUrl,
-      );
+  
+      const { page: resolvedPage } = await this.getFinalEffectivePage(browser, page, finalUrl);
       finalPage = resolvedPage;
-
+  
       if (finalPage.isClosed()) {
         this.logger.warn(`[TASK_${taskId}] Page was closed during navigation`);
         return;
       }
-
+  
       if (shouldClickRedirectLink) {
         this.logger.info(
           `[TASK_${taskId}] shouldClickRedirectLink=true: looking for redirect link after page load`,
         );
-
         finalPage = await this.tryClickRedirectLink(finalPage, taskId);
       }
+  
       await this.sleep(10_000);
-
+  
       await this.safeExecute(finalPage, () => this.simulateScrolling(finalPage, taskId, 'down'));
       await this.safeExecute(finalPage, () => this.simulateRandomClicks(finalPage, taskId));
       await this.safeExecute(finalPage, () => this.simulateScrolling(finalPage, taskId, 'up'));
       await this.safeExecute(finalPage, () => this.findAndOpenForm(finalPage, taskId));
-
+  
       await this.takeScreenshot(finalPage, taskId, 'before-form-fill');
-
+  
       afterSubmitUrl = await this.safeExecute(finalPage, () =>
         this.fillFormWithData(finalPage, leadData, taskId, task.isQuiz),
       );
-
-      if (!finalPage.isClosed()) {
+  
+      if (finalPage && !finalPage.isClosed()) {
         finalRedirectUrl = finalPage.url();
         this.logger.info(`[TASK_${taskId}] Final redirect URL: ${finalRedirectUrl}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`[TASK_${taskId}] Error in Puppeteer task: ${error.message}`, error);
-
-      if (finalPage && !finalPage.isClosed()) {
-        try {
+  
+      try {
+        if (finalPage && !finalPage.isClosed()) {
           finalRedirectUrl = finalPage.url();
           this.logger.info(`[TASK_${taskId}] Captured URL after error: ${finalRedirectUrl}`);
-        } catch (urlError) {
-          this.logger.warn(`[TASK_${taskId}] Could not get URL after error: ${urlError.message}`);
+        } else if (page && !page.isClosed()) {
+          finalRedirectUrl = page.url();
+          this.logger.info(`[TASK_${taskId}] Captured URL after error (page): ${finalRedirectUrl}`);
         }
+      } catch (urlError: any) {
+        this.logger.warn(`[TASK_${taskId}] Could not get URL after error: ${urlError.message}`);
       }
     } finally {
-      if (finalPage && !finalPage.isClosed()) {
-        await this.puppeteerService.releasePage(finalPage, geo as CountryCode);
-      } else if (page && !page.isClosed()) {
-        await this.puppeteerService.releasePage(page, geo as CountryCode);
-      }
-
-      // Always update statistics with whatever result we have
       const finalResult = afterSubmitUrl || finalRedirectUrl;
+  
       if (finalResult) {
         this.logger.info(`[TASK_${taskId}] Final result URL: ${finalResult}`);
       } else {
         this.logger.info(`[TASK_${taskId}] No result URL captured`);
       }
-
-      await this.updateTaskStatistics(task._id.toString(), finalResult);
+  
+      await this.updateTaskStatistics(taskId, finalResult);
+  
+      if (browser) {
+        await browser.close().catch(() => {});
+      }
     }
   }
 

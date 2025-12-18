@@ -20,15 +20,6 @@ export class Task {
   @Prop({ required: true })
   createdBy: string;
 
-  @Prop({ required: true })
-  intervalMinutes: number;
-
-  @Prop({ required: true })
-  timeFrom: string;
-
-  @Prop({ required: true })
-  timeTo: string;
-
   @Prop({
     type: String,
     enum: Object.values(TaskStatus),

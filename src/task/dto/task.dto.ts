@@ -6,9 +6,6 @@ export interface TaskDto {
   url: string;
   geo: string;
   profile: GeoProfileDto;
-  intervalMinutes: number;
-  timeFrom: string;
-  timeTo: string;
   result?: TaskStatisticsDto;
   status: TaskStatus;
   createdBy: string;
@@ -32,10 +29,7 @@ export interface CreateTaskDto {
   url: string;
   geo: string;
   profileId: string;
-  intervalMinutes: number;
   applicationsNumber: number;
-  timeFrom: string;
-  timeTo: string;
   shouldClickRedirectLink?: boolean;
   isQuiz?: boolean;
 }
@@ -44,10 +38,8 @@ export interface UpdateTaskDto {
   url?: string;
   geo?: string;
   profileId?: string;
-  intervalMinutes?: number;
+  status?: TaskStatus;
   applicationsNumber?: number;
-  timeFrom?: string;
-  timeTo?: string;
   shouldClickRedirectLink?: boolean;
   isQuiz?: boolean;
 }

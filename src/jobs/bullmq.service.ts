@@ -5,16 +5,15 @@ import Redis from 'ioredis';
 import { Model } from 'mongoose';
 
 import { TaskStatus } from '../enums';
-import { Task, TaskDocument } from '../task/task.schema';
+import { Task } from '../task/task.schema';
 import { calculateMaxConcurrentTasks } from '../utils/concurrency-limits';
 import { LogWrapper } from '../utils/LogWrapper';
-import { getTimeUntilNextAllowedRun, isWithinTimeRange } from '../utils/time-utils';
 import { TaskProcessorService } from './task-processor.service';
+
+const JOB_NAME = 'process-task-loop';
 
 interface TaskJobData {
   taskId: string;
-  priority?: number;
-  delay?: number;
 }
 
 @Injectable()
@@ -54,7 +53,7 @@ export class BullMQService implements OnModuleDestroy {
         defaultJobOptions: {
           removeOnComplete: 9999,
           removeOnFail: 100,
-          attempts: 15,
+          attempts: 1,
           backoff: {
             type: 'exponential',
             delay: 2000,
@@ -90,6 +89,9 @@ export class BullMQService implements OnModuleDestroy {
       this.isInitialized = true;
       this.logger.info('[BULLMQ] Сервис инициализирован успешно');
 
+      await this.taskModel.updateMany({ isRunning: true }, { isRunning: false }).exec();
+      this.logger.info('[BULLMQ] Reset task locks on startup');
+
       await this.scheduleActiveTasks();
     } catch (error) {
       this.logger.error(`[BULLMQ] Ошибка инициализации: ${error.message}`);
@@ -114,264 +116,107 @@ export class BullMQService implements OnModuleDestroy {
     }
   }
 
-  async scheduleTask(taskId: string, intervalMinutes: number): Promise<void> {
-    if (!this.isInitialized) {
-      throw new Error('BullMQ service not initialized');
+  private jobId(taskId: string) {
+    return `task-loop-${taskId}`;
+  }
+
+  async enqueueTaskLoop(taskId: string): Promise<void> {
+    if (!this.isInitialized) throw new Error('BullMQ service not initialized');
+  
+    const task = await this.taskModel.findById(taskId).select('status isRunning').exec();
+    if (!task) throw new Error(`Task ${taskId} not found`);
+  
+    if (task.status !== TaskStatus.ACTIVE) {
+      this.logger.warn(`[ENQUEUE] Task ${taskId} is not active, skipping`);
+      return;
     }
-
-    try {
-      const task = await this.taskModel.findById(taskId).exec();
-
-      if (!task) {
-        throw new Error(`Task ${taskId} not found`);
-      }
-
-      if (task.status !== TaskStatus.ACTIVE) {
-        this.logger.warn(`[SCHEDULE] Task ${taskId} is not active, skipping`);
+  
+    const id = this.jobId(taskId);
+  
+    const existing = await this.taskQueue.getJob(id);
+    if (existing) {
+      const state = await existing.getState();
+      this.logger.info(`[ENQUEUE] Found existing loop job for ${taskId} in state=${state}`);
+  
+      if (state === 'completed' || state === 'failed') {
+        await existing.remove();
+        this.logger.info(`[ENQUEUE] Removed stale loop job for ${taskId} (state=${state})`);
+      } else {
         return;
       }
-
-      const existingJobs = await this.taskQueue.getJobs(['delayed', 'waiting']);
-      const existingJob = existingJobs.find((job) => job.data.taskId === taskId);
-
-      if (existingJob) {
-        this.logger.info(`[SCHEDULE] Task ${taskId} is already scheduled, skipping duplicate`);
-        return;
-      }
-
-      if (!isWithinTimeRange(task.timeFrom, task.timeTo)) {
-        const timeUntilNextRun = getTimeUntilNextAllowedRun(task.timeFrom, task.timeTo);
-
-        this.logger.info(
-          `[SCHEDULE] Task ${taskId} is outside allowed time range (${task.timeFrom}-${task.timeTo}). ` +
-            `Scheduling for next allowed time in ${Math.round(timeUntilNextRun / 1000 / 60)} minutes`,
-        );
-
-        const jobId = `task-${taskId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        await this.taskQueue.add(
-          'process-task',
-          { taskId },
-          {
-            delay: timeUntilNextRun + intervalMinutes * 60 * 1000,
-            priority: 1,
-            jobId,
-            removeOnComplete: true,
-            removeOnFail: false,
-          },
-        );
-
-        const nextRunAt = new Date(Date.now() + timeUntilNextRun + intervalMinutes * 60 * 1000);
-        await this.taskModel.findByIdAndUpdate(taskId, {
-          nextRunAt,
-          lastScheduledAt: new Date(),
-        });
-
-        return;
-      }
-
-      const now = new Date();
-      const nextRunAt = new Date(now.getTime() + intervalMinutes * 60 * 1000);
-
-      const randomDelay = Math.floor(Math.random() * 120) + 30; // Случайная задержка от 30 до 150 секунд
-      const delayedRunAt = new Date(nextRunAt.getTime() + randomDelay * 1000);
-
-      const priority = this.calculatePriority(task, intervalMinutes);
-
-      const jobId = `task-${taskId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      await this.taskQueue.add(
-        'process-task',
-        { taskId },
-        {
-          delay: delayedRunAt.getTime() - now.getTime(),
-          priority,
-          jobId,
-          removeOnComplete: true,
-          removeOnFail: false,
-        },
-      );
-
-      await this.taskModel.findByIdAndUpdate(taskId, {
-        nextRunAt: delayedRunAt,
-        lastScheduledAt: now,
-      });
-
-      this.logger.info(
-        `[SCHEDULE] Task ${taskId} scheduled for ${delayedRunAt.toISOString()} with priority ${priority} ` +
-          `(time range: ${task.timeFrom}-${task.timeTo})`,
-      );
-    } catch (error) {
-      this.logger.error(`[SCHEDULE] Error scheduling task ${taskId}: ${error.message}`);
-      throw error;
     }
+  
+    await this.taskQueue.add(
+      JOB_NAME,
+      { taskId },
+      {
+        jobId: id,
+        removeOnComplete: true,
+        removeOnFail: false,
+        attempts: 1,
+      },
+    );
+  
+    this.logger.info(`[ENQUEUE] Enqueued loop job for ${taskId}`);
   }
 
   async cancelTask(taskId: string): Promise<void> {
-    if (!this.isInitialized) {
-      throw new Error('BullMQ service not initialized');
+    if (!this.isInitialized) throw new Error('BullMQ service not initialized');
+  
+    const job = await this.taskQueue.getJob(this.jobId(taskId));
+    if (!job) {
+      this.logger.info(`[CANCEL] No loop job found for task ${taskId}`);
+      return;
     }
-
-    try {
-      const jobs = await this.taskQueue.getJobs(['delayed', 'waiting']);
-      const jobsToRemove = jobs.filter((job) => job.data.taskId === taskId);
-
-      for (const job of jobsToRemove) {
-        await job.remove();
-      }
-
-      this.logger.info(`[CANCEL] Cancelled ${jobsToRemove.length} jobs for task ${taskId}`);
-    } catch (error) {
-      this.logger.error(`[CANCEL] Error cancelling task ${taskId}: ${error.message}`);
-      throw error;
-    }
+  
+    await job.remove();
+    this.logger.info(`[CANCEL] Removed loop job for task ${taskId}`);
   }
 
-  async rescheduleTask(taskId: string, intervalMinutes: number): Promise<void> {
+  async rescheduleTask(taskId: string): Promise<void> {
     await this.cancelTask(taskId);
-    await this.scheduleTask(taskId, intervalMinutes);
+    await this.enqueueTaskLoop(taskId);
   }
 
   private async processTaskJob(job: Job<TaskJobData>): Promise<void> {
     const { taskId } = job.data;
-
-    this.logger.info(`[PROCESS] Processing task ${taskId}`);
-
-    try {
-      const task = await this.taskModel.findById(taskId).exec();
-      if (!task) {
-        this.logger.warn(`[PROCESS] Task ${taskId} not found, skipping`);
-        return;
-      }
-
-      if (task.status !== TaskStatus.ACTIVE) {
-        this.logger.warn(
-          `[PROCESS] Task ${taskId} is not active (status: ${task.status}), skipping`,
-        );
-        return;
-      }
-
-      if (task.isRunning) {
-        this.logger.warn(
-          `[PROCESS] Task ${taskId} is already running, scheduling next run and skipping`,
-        );
-        await this.scheduleNextRun(taskId);
-        return;
-      }
-
-      if (!isWithinTimeRange(task.timeFrom, task.timeTo)) {
-        this.logger.warn(
-          `[PROCESS] Task ${taskId} is outside allowed time range (${task.timeFrom}-${task.timeTo}), rescheduling`,
-        );
-
-        const timeUntilNextRun = getTimeUntilNextAllowedRun(task.timeFrom, task.timeTo);
-        await this.scheduleTask(taskId, timeUntilNextRun);
-        return;
-      }
-
-      await this.taskProcessorService.processTasks(taskId);
-      await this.taskModel.findByIdAndUpdate(taskId, {
-        lastRunAt: new Date(),
-        isRunning: false,
-      });
-
-      this.logger.info(`[PROCESS] Task ${taskId} processed successfully`);
-
-      await this.scheduleNextRun(taskId);
-    } catch (error) {
-      this.logger.error(`[PROCESS] Error processing task ${taskId}: ${error.message}`);
-
-      await this.taskModel.findByIdAndUpdate(taskId, {
-        isRunning: false,
-      });
-
-      await this.scheduleNextRun(taskId);
-
-      throw error;
+  
+    this.logger.info(`[PROCESS_LOOP] Starting loop for task ${taskId}`);
+  
+    const task = await this.taskModel.findById(taskId).select('status').exec();
+    if (!task) {
+      this.logger.warn(`[PROCESS_LOOP] Task ${taskId} not found, skipping`);
+      return;
     }
+  
+    if (task.status !== TaskStatus.ACTIVE) {
+      this.logger.warn(`[PROCESS_LOOP] Task ${taskId} is not active (status: ${task.status}), skipping`);
+      return;
+    }
+  
+    await this.taskProcessorService.processTasks(taskId);
+  
+    this.logger.info(`[PROCESS_LOOP] Finished loop for task ${taskId}`);
   }
 
   private async scheduleActiveTasks(): Promise<void> {
     try {
       const activeTasks = await this.taskModel
-        .find({
-          status: TaskStatus.ACTIVE,
-          isRunning: false,
-        })
+        .find({ status: TaskStatus.ACTIVE })
+        .select('_id')
         .exec();
-
-      this.logger.info(`[SCHEDULE_ACTIVE] Found ${activeTasks.length} active tasks to schedule`);
-
-      let scheduledCount = 0;
-      let skippedCount = 0;
-
-      for (const task of activeTasks) {
+  
+      this.logger.info(`[SCHEDULE_ACTIVE] Found ${activeTasks.length} active tasks to enqueue`);
+  
+      for (const t of activeTasks) {
         try {
-          if (isWithinTimeRange(task.timeFrom, task.timeTo)) {
-            await this.scheduleTask(task._id.toString(), task.intervalMinutes);
-            scheduledCount++;
-          } else {
-            this.logger.info(
-              `[SCHEDULE_ACTIVE] Task ${task._id} is outside allowed time range ` +
-                `(${task.timeFrom}-${task.timeTo}), will be scheduled later`,
-            );
-            await this.scheduleTask(task._id.toString(), task.intervalMinutes);
-            skippedCount++;
-          }
-        } catch (error) {
-          this.logger.error(
-            `[SCHEDULE_ACTIVE] Error scheduling task ${task._id}: ${error.message}`,
-          );
+          await this.enqueueTaskLoop(t._id.toString());
+        } catch (e: any) {
+          this.logger.error(`[SCHEDULE_ACTIVE] Error enqueuing task ${t._id}: ${e.message}`);
         }
       }
-
-      this.logger.info(
-        `[SCHEDULE_ACTIVE] Finished scheduling active tasks. ` +
-          `Scheduled: ${scheduledCount}, Skipped (outside time): ${skippedCount}`,
-      );
-    } catch (error) {
-      this.logger.error(`[SCHEDULE_ACTIVE] Error scheduling active tasks: ${error.message}`);
-    }
-  }
-
-  private calculatePriority(task: TaskDocument, intervalMinutes: number): number {
-    const now = new Date();
-    const lastRunAt = task.lastRunAt ? new Date(task.lastRunAt) : new Date(0);
-    const timeSinceLastRun = now.getTime() - lastRunAt.getTime();
-
-    let priority = Math.floor(timeSinceLastRun / (intervalMinutes * 60 * 1000));
-    priority += Math.floor(Math.random() * 10);
-
-    return Math.min(Math.max(priority, 1), 100);
-  }
-
-  private async scheduleNextRun(taskId: string): Promise<void> {
-    try {
-      const task = await this.taskModel.findById(taskId).exec();
-      if (!task) {
-        this.logger.warn(`[SCHEDULE_NEXT] Task ${taskId} not found, cannot schedule next run`);
-        return;
-      }
-
-      if (task.status !== TaskStatus.ACTIVE) {
-        this.logger.warn(`[SCHEDULE_NEXT] Task ${taskId} is not active, skipping next run`);
-        return;
-      }
-
-      const existingJobs = await this.taskQueue.getJobs(['delayed', 'waiting']);
-      const existingJob = existingJobs.find((job) => job.data.taskId === taskId);
-
-      if (existingJob) {
-        this.logger.info(`[SCHEDULE_NEXT] Task ${taskId} is already scheduled, skipping duplicate`);
-        return;
-      }
-
-      await this.scheduleTask(taskId, task.intervalMinutes);
-      this.logger.info(
-        `[SCHEDULE_NEXT] Task ${taskId} scheduled for next run in ${task.intervalMinutes} minutes`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `[SCHEDULE_NEXT] Error scheduling next run for task ${taskId}: ${error.message}`,
-      );
+    } catch (e: any) {
+      this.logger.error(`[SCHEDULE_ACTIVE] Error: ${e.message}`);
     }
   }
 

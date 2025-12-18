@@ -1,3 +1,4 @@
+import { TaskStatus } from '@enums';
 import { GeoProfileDto } from '@geo-profile/dto/geo-profile.dto';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -29,10 +30,7 @@ export class TaskService {
       geo: dto.geo,
       profileId: dto.profileId,
       createdBy: userId,
-      intervalMinutes: dto.intervalMinutes,
       applicationsNumber: dto.applicationsNumber,
-      timeFrom: dto.timeFrom,
-      timeTo: dto.timeTo,
       result: {
         total: 0,
         success: {},
@@ -40,7 +38,7 @@ export class TaskService {
       shouldClickRedirectLink: dto.shouldClickRedirectLink ?? false,
       isQuiz: dto.isQuiz ?? false,
     });
-
+  
     const task = await this.taskModel
       .findById(created._id)
       .populate<{ profileId: GeoProfileDto }>({
@@ -48,36 +46,39 @@ export class TaskService {
         select: 'name geo',
       })
       .exec();
-
+  
     try {
-      await this.bullMQService.scheduleTask(created._id.toString(), dto.intervalMinutes);
-    } catch (error) {
-      this.logger.error(`Error scheduling task ${created._id}:`, error);
+      if (task && task.status === TaskStatus.ACTIVE) {
+        await this.bullMQService.enqueueTaskLoop(task._id.toString());
+      } else {
+        this.logger.info(
+          `[TASK_CREATE] Task ${created._id} created with status=${task?.status}, not enqueuing loop`,
+        );
+      }
+    } catch (error: any) {
+      this.logger.error(`Error enqueuing loop for task ${created._id}:`, error);
     }
-
-    const profile = task.profileId!;
+  
+    const profile = task!.profileId as unknown as GeoProfileDto;
+  
     return {
-      _id: task._id.toString(),
-      url: task.url,
-      geo: task.geo,
-
-      createdBy: task.createdBy,
-      profile: profile,
-      intervalMinutes: task.intervalMinutes,
-      timeFrom: task.timeFrom,
-      timeTo: task.timeTo,
+      _id: task!._id.toString(),
+      url: task!.url,
+      geo: task!.geo,
+      createdBy: task!.createdBy,
+      profile,
       result: {
         total: 0,
         successCount: 0,
         redirects: [],
       },
-      status: task.status,
-      createdAt: task.createdAt.toISOString(),
-      updatedAt: task.updatedAt.toISOString(),
-      shouldClickRedirectLink: task.shouldClickRedirectLink,
-      isQuiz: task.isQuiz,
+      status: task!.status,
+      createdAt: task!.createdAt.toISOString(),
+      updatedAt: task!.updatedAt.toISOString(),
+      shouldClickRedirectLink: task!.shouldClickRedirectLink,
+      isQuiz: task!.isQuiz,
     };
-  }
+  }  
 
   async findAllByUser(
     userId: string,
@@ -123,9 +124,6 @@ export class TaskService {
           geo: task.geo,
           createdBy: task.createdBy,
           profile: task.profileId,
-          intervalMinutes: task.intervalMinutes,
-          timeFrom: task.timeFrom,
-          timeTo: task.timeTo,
           result,
           status: task.status,
           createdAt: task.createdAt.toISOString(),
@@ -155,47 +153,42 @@ export class TaskService {
 
   async updateTask(taskId: string, dto: UpdateTaskDto): Promise<TaskDto> {
     const task = await this.taskModel.findById(taskId);
-
+  
     if (!task) {
       throw new Error(`Task with ID ${taskId} not found`);
     }
-
-    const oldIntervalMinutes = task.intervalMinutes;
-    const oldTimeFrom = task.timeFrom;
-    const oldTimeTo = task.timeTo;
-
+  
+    const prevStatus = task.status;
+  
     Object.assign(task, dto);
-    await task.save();
-
-    const needsReschedule =
-      (dto.intervalMinutes && dto.intervalMinutes !== oldIntervalMinutes) ||
-      (dto.timeFrom && dto.timeFrom !== oldTimeFrom) ||
-      (dto.timeTo && dto.timeTo !== oldTimeTo);
-
-    if (needsReschedule) {
-      const changes = [];
-      if (dto.intervalMinutes && dto.intervalMinutes !== oldIntervalMinutes) {
-        changes.push(`interval: ${oldIntervalMinutes} → ${dto.intervalMinutes}`);
-      }
-      if (dto.timeFrom && dto.timeFrom !== oldTimeFrom) {
-        changes.push(`timeFrom: ${oldTimeFrom} → ${dto.timeFrom}`);
-      }
-      if (dto.timeTo && dto.timeTo !== oldTimeTo) {
-        changes.push(`timeTo: ${oldTimeTo} → ${dto.timeTo}`);
-      }
-
-      this.logger.info(
-        `[TASK_UPDATE] Rescheduling task ${taskId} due to changes: ${changes.join(', ')}`,
-      );
-
-      try {
-        await this.bullMQService.rescheduleTask(taskId, task.intervalMinutes);
-        this.logger.info(`[TASK_UPDATE] Successfully rescheduled task ${taskId}`);
-      } catch (error) {
-        this.logger.error(`Error rescheduling task ${taskId}:`, error);
-      }
+  
+    const statusProvided = typeof (dto as any).status !== 'undefined';
+    const nextStatus = statusProvided ? (dto as any).status : prevStatus;
+  
+    const isResuming = statusProvided && prevStatus !== TaskStatus.ACTIVE && nextStatus === TaskStatus.ACTIVE;
+  
+    if (isResuming) {
+      task.isRunning = false;
     }
-
+  
+    await task.save();
+    this.logger.info(
+      `[TASK_UPDATE] Task ${taskId} updated` +
+        (statusProvided ? ` (status: ${prevStatus} -> ${nextStatus})` : ''),
+    );
+  
+    try {
+      if (isResuming) {
+        await this.bullMQService.enqueueTaskLoop(taskId);
+        this.logger.info(`[TASK_UPDATE] Enqueued loop job after resume for task ${taskId}`);
+      }
+    } catch (e: any) {
+      this.logger.error(
+        `[TASK_UPDATE] Failed to sync BullMQ loop job for task ${taskId}: ${e?.message ?? e}`,
+        e,
+      );
+    }
+  
     const populatedTask = await this.taskModel
       .findById(taskId)
       .populate<{ profileId: GeoProfileDto }>({
@@ -204,18 +197,15 @@ export class TaskService {
           'name geo leadKey userAgentKey fbclidKey leadCount userAgentCount fbclidCount createdBy createdAt',
       })
       .exec();
-
+  
     const result = await this.getTaskStatistics(populatedTask!._id.toString());
-
+  
     return {
       _id: populatedTask!._id.toString(),
       url: populatedTask!.url,
       geo: populatedTask!.geo,
       createdBy: populatedTask!.createdBy,
       profile: populatedTask!.profileId,
-      intervalMinutes: populatedTask!.intervalMinutes,
-      timeFrom: populatedTask!.timeFrom,
-      timeTo: populatedTask!.timeTo,
       result,
       status: populatedTask!.status,
       createdAt: populatedTask!.createdAt.toISOString(),
