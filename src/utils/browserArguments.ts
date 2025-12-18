@@ -23,5 +23,14 @@ export const BROWSER_ARGUMENTS = (
     "--disable-renderer-backgrounding",
     "--disable-features=TranslateUI",
     "--disable-ipc-flooding-protection",
+    '--disable-webrtc',
+    '--disable-notifications',
+    '--disable-extensions',
+    '--disable-default-apps',
+    '--disable-component-update',
+    '--disable-client-side-phishing-detection',
+    '--disable-features=UserAgentClientHint',
+    '--disable-features=ClientHintsPersist',
+    '--disable-features=AcceptCHFrame',
   ];
 };

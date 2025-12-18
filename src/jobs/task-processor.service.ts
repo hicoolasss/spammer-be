@@ -16,7 +16,7 @@ import { RedisService } from '../redis/redis.service';
 import { calculateMaxConcurrentTasks } from '../utils/concurrency-limits';
 
 const NAVIGATION_TIMEOUT_MS = 15_000;
-const FORM_SUBMISSION_WAIT_MS = 45_000;
+const FORM_SUBMISSION_WAIT_MS = 20_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
   return Promise.race([
@@ -1189,242 +1189,398 @@ export class TaskProcessorService {
     leadData: LeadData,
     taskId?: string,
     isQuiz?: boolean,
+    humanize = true,
   ): Promise<string | null> {
     const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
-
+  
     this.logger.info(`${taskPrefix} Available lead data: ${JSON.stringify(leadData)}`);
-
+  
     if (page.isClosed()) {
       this.logger.warn(`${taskPrefix} Page is closed, skipping form filling`);
       return null;
     }
-
+  
+    const sleep = (ms: number) => this.sleep(ms);
+  
     try {
-      const prePause = Math.random() * 3_000;
-      this.logger.info(`${taskPrefix} Pause before filling form: ${prePause.toFixed(0)}ms`);
-      await this.sleep(prePause);
-      const randomClicks = 1 + Math.floor(Math.random() * 2);
-      for (let i = 0; i < randomClicks; i++) {
-        await page.evaluate(() => {
-          const all = Array.from(document.querySelectorAll('div, p, span, section, article'));
-          const candidates = all.filter((el) => {
-            const style = window.getComputedStyle(el);
-            return (
-              (el as HTMLElement).offsetParent !== null &&
-              style.display !== 'none' &&
-              style.visibility !== 'hidden' &&
-              style.opacity !== '0' &&
-              el.clientHeight > 10 &&
-              el.clientWidth > 10
-            );
+      if (humanize) {
+        const prePause = 1000 + Math.random() * 3000;
+        this.logger.info(`${taskPrefix} (Humanize) Pause before filling form: ${prePause.toFixed(0)}ms`);
+        await sleep(prePause);
+  
+        const randomClicks = 1 + Math.floor(Math.random() * 2);
+        for (let i = 0; i < randomClicks; i++) {
+          await page.evaluate(() => {
+            const all = Array.from(document.querySelectorAll('div, p, span, section, article'));
+            const candidates = all.filter((el) => {
+              const style = window.getComputedStyle(el);
+              return (
+                (el as HTMLElement).offsetParent !== null &&
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                style.opacity !== '0' &&
+                el.clientHeight > 10 &&
+                el.clientWidth > 10
+              );
+            });
+  
+            if (candidates.length > 0) {
+              const el = candidates[Math.floor(Math.random() * candidates.length)] as HTMLElement;
+              const rect = el.getBoundingClientRect();
+              (window as any).__lastRandomClick = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+              el.click();
+            }
           });
-          if (candidates.length > 0) {
-            const el = candidates[Math.floor(Math.random() * candidates.length)] as HTMLElement;
-            const rect = el.getBoundingClientRect();
-            (window as any).__lastRandomClick = {
-              x: rect.left + rect.width / 2,
-              y: rect.top + rect.height / 2,
-            };
-            el.click();
+  
+          if (page.mouse && page.evaluate) {
+            const pos = await page.evaluate(() => (window as any).__lastRandomClick || { x: 100, y: 100 });
+            await page.mouse.move(pos.x, pos.y, { steps: 10 });
           }
-        });
-        if (page.mouse && page.evaluate) {
-          const pos = await page.evaluate(
-            () => (window as any).__lastRandomClick || { x: 100, y: 100 },
-          );
-          await page.mouse.move(pos.x, pos.y, { steps: 10 });
-        }
-        await this.sleep(400 + Math.random() * 600);
-      }
-
-      await page.evaluate(() => {
-        const forms = document.querySelectorAll('form');
-        if (forms.length > 0) {
-          forms[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      });
-
-      await this.sleep(1_000 + Math.random() * 1_000);
-
-      const beforeSubmitUrl = page.url();
-
-      if (isQuiz) {
-        this.logger.info(
-          `${taskPrefix} This is a quiz task, using JavaScript code generation approach`,
-        );
-        try {
-          const formsHtml = await this.aiService.extractFormHtml(page);
-          if (!formsHtml.trim()) {
-            this.logger.warn(`${taskPrefix} No forms found on the page`);
-            throw new Error(
-              `${taskPrefix} No forms found on the page, cannot proceed with form filling`,
-            );
-          }
-
-          const jsCode = await this.aiService.generateFormFillScript(formsHtml, leadData);
-          this.logger.info(`${taskPrefix} Generated JavaScript code for quiz form filling`);
-
-          await page.evaluate(jsCode);
-          this.logger.info(`${taskPrefix} Executed JavaScript code for quiz form filling`);
-        } catch (quizError) {
-          this.logger.error(
-            `${taskPrefix} Quiz form filling failed: ${quizError.message}, falling back to regular method`,
-          );
+  
+          await sleep(400 + Math.random() * 600);
         }
       } else {
-        let analysis;
-
+        await sleep(100);
+      }
+  
+      await page.evaluate((fast) => {
+        const forms = document.querySelectorAll('form');
+        if (forms.length > 0) {
+          (forms[0] as HTMLElement).scrollIntoView({ behavior: fast ? 'auto' : 'smooth', block: 'center' });
+        }
+      }, !humanize);
+  
+      if (humanize) await sleep(1000 + Math.random() * 1000);
+      else await sleep(150);
+  
+      const beforeSubmitUrl = page.url();
+  
+      if (isQuiz) {
+        this.logger.info(`${taskPrefix} This is a quiz task, using JavaScript code generation approach`);
         try {
           const formsHtml = await this.aiService.extractFormHtml(page);
           if (!formsHtml.trim()) {
             this.logger.warn(`${taskPrefix} No forms found on the page`);
-            throw new Error(
-              `${taskPrefix} No forms found on the page, cannot proceed with form filling`,
-            );
+            throw new Error(`${taskPrefix} No forms found on the page, cannot proceed with form filling`);
+          }
+  
+          const jsCode = await this.aiService.generateFormFillScript(formsHtml, leadData);
+          this.logger.info(`${taskPrefix} Generated JavaScript code for quiz form filling`);
+  
+          await page.evaluate(jsCode);
+          this.logger.info(`${taskPrefix} Executed JavaScript code for quiz form filling`);
+        } catch (quizError: any) {
+          this.logger.error(
+            `${taskPrefix} Quiz form filling failed: ${quizError?.message ?? quizError}, falling back to regular method`,
+          );
+          isQuiz = false;
+        }
+      }
+  
+      let analysis: any;
+  
+      if (!isQuiz) {
+        try {
+          const formsHtml = await this.aiService.extractFormHtml(page);
+          if (!formsHtml.trim()) {
+            this.logger.warn(`${taskPrefix} No forms found on the page`);
+            return null;
           }
           analysis = await this.aiService.analyzeForms(formsHtml);
-        } catch (aiError) {
-          this.logger.warn(
-            `${taskPrefix} AI analysis failed: ${aiError.message}, trying fallback method`,
-          );
+        } catch (aiError: any) {
+          this.logger.warn(`${taskPrefix} AI analysis failed: ${aiError.message}, trying fallback method`);
           try {
             analysis = await this.aiService.analyzeFormsFallback(page);
-          } catch (fallbackError) {
-            this.logger.error(
-              `${taskPrefix} Both AI and fallback analysis failed: ${fallbackError.message}`,
-            );
-            return;
+          } catch (fallbackError: any) {
+            this.logger.error(`${taskPrefix} Both AI and fallback analysis failed: ${fallbackError.message}`);
+            return null;
           }
         }
-
-        if (!analysis.bestForm || analysis.bestForm.fields.length === 0) {
+  
+        if (!analysis?.bestForm || !analysis.bestForm.fields || analysis.bestForm.fields.length === 0) {
           this.logger.warn(`${taskPrefix} Could not identify suitable form fields`);
-          return;
+          return null;
         }
-
+  
         this.logger.info(
           `${taskPrefix} Selected form #${analysis.bestForm.formIndex} with ${analysis.bestForm.fields.length} fields`,
         );
-
-        await page.evaluate((formIndex) => {
+  
+        await page.evaluate((formIndex: number, fast: boolean) => {
           const forms = Array.from(document.querySelectorAll('form'));
           const form = forms[formIndex];
-          if (form) {
-            form.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
-        }, analysis.bestForm.formIndex);
-        await this.sleep(1_500 + Math.random() * 1_000);
-
+          if (form) (form as HTMLElement).scrollIntoView({ behavior: fast ? 'auto' : 'smooth', block: 'center' });
+        }, analysis.bestForm.formIndex, !humanize);
+  
+        if (humanize) await sleep(1500 + Math.random() * 1000);
+        else await sleep(200);
+  
         for (const field of analysis.bestForm.fields) {
           if (page.isClosed()) {
             this.logger.warn(`${taskPrefix} Page is closed, stopping form filling`);
-            return;
+            return null;
           }
+  
           let value = '';
           switch (field.type) {
             case 'name':
-              value = leadData.name;
+              value = leadData.name || '';
               break;
             case 'surname':
-              value = leadData.lastname;
+              value = leadData.lastname || '';
               break;
             case 'phone':
-              value = leadData.phone;
+              value = leadData.phone || '';
               break;
             case 'email':
-              value = leadData.email;
+              value = leadData.email || '';
               break;
+            default:
+              value = '';
           }
-
+  
           if (!value) {
-            this.logger.error(`${taskPrefix} No value for field type: ${field.type}, skipping`);
-            throw new Error(
-              `${taskPrefix} No value for field type: ${field.type}, cannot fill form`,
-            );
+            this.logger.warn(`${taskPrefix} No value for field type: ${field.type}, skipping`);
+            continue;
           }
-
+  
           try {
-            const fieldExists = await page.evaluate((selector) => {
-              const element = document.querySelector(selector) as HTMLInputElement;
+            const fieldExists = await page.evaluate((selector: string, fast: boolean) => {
+              const element = document.querySelector(selector) as HTMLInputElement | null;
               if (element) {
-                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                (element as HTMLElement).scrollIntoView({ behavior: fast ? 'auto' : 'smooth', block: 'center' });
                 return true;
               }
               return false;
-            }, field.selector);
+            }, field.selector, !humanize);
+  
             if (!fieldExists) {
               this.logger.warn(`${taskPrefix} Field not found: ${field.selector}, skipping`);
               continue;
             }
-            await this.sleep(500 + Math.random() * 500);
-
-            await this.simulateMouseMovement(page, field.selector, taskId);
-
-            if (Math.random() < 0.2) {
-              await this.sleep(600 + Math.random() * 800);
+  
+            if (humanize) await sleep(500 + Math.random() * 500);
+            else await sleep(80);
+  
+            if (humanize && page.mouse) {
+              const rect = await page.evaluate((selector: string) => {
+                const el = document.querySelector(selector) as HTMLElement | null;
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+              }, field.selector);
+  
+              if (rect) {
+                await page.mouse.move(rect.x, rect.y, { steps: 15 });
+                await sleep(200 + Math.random() * 300);
+              }
             }
-
-            const typingConfig = this.getTypingConfig(field.type);
-            await this.fillFieldWithTyping(page, field.selector, value, typingConfig);
-
+  
+            if (humanize && Math.random() < 0.2) {
+              this.logger.info(`${taskPrefix} (Humanize) Not focusing immediately on field: ${field.selector}`);
+              await sleep(600 + Math.random() * 800);
+            }
+  
+            await page.evaluate((selector: string) => {
+              const element = document.querySelector(selector) as HTMLInputElement | null;
+              if (element) {
+                element.focus();
+                element.click();
+              }
+            }, field.selector);
+  
+            await sleep(humanize ? (200 + Math.random() * 300) : (100 + Math.random() * 100));
+  
+            if (humanize) {
+              this.logger.info(`${taskPrefix} 🎯 Starting humanized typing for field: ${field.selector}`);
+  
+              await page.evaluate((selector: string) => {
+                const el = document.querySelector(selector) as HTMLInputElement | null;
+                if (!el) return;
+                el.value = '';
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+              }, field.selector);
+  
+              for (let i = 0; i < value.length; i++) {
+                await page.evaluate(
+                  (selector: string, char: string) => {
+                    const element = document.querySelector(selector) as HTMLInputElement | null;
+                    if (element) {
+                      element.value += char;
+                      element.dispatchEvent(new Event('input', { bubbles: true }));
+                      element.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                  },
+                  field.selector,
+                  value[i],
+                );
+  
+                const totalDelay = 300 + Math.random() * 900;
+                await sleep(totalDelay);
+  
+                if (Math.random() < 0.05 && i < value.length - 1) {
+                  const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26));
+                  this.logger.debug(`${taskPrefix} ⌨️ Made typo: "${typoChar}", correcting...`);
+  
+                  await page.evaluate(
+                    (selector: string, typoChar: string) => {
+                      const element = document.querySelector(selector) as HTMLInputElement | null;
+                      if (element) {
+                        element.value += typoChar;
+                        element.dispatchEvent(new Event('input', { bubbles: true }));
+                      }
+                    },
+                    field.selector,
+                    typoChar,
+                  );
+  
+                  await sleep(200 + Math.random() * 300);
+  
+                  await page.evaluate((selector: string) => {
+                    const element = document.querySelector(selector) as HTMLInputElement | null;
+                    if (element) {
+                      element.value = element.value.slice(0, -1);
+                      element.dispatchEvent(new Event('input', { bubbles: true }));
+                      element.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                  }, field.selector);
+  
+                  await sleep(150 + Math.random() * 200);
+                }
+              }
+            } else {
+              await page.evaluate((selector: string) => {
+                const el = document.querySelector(selector) as HTMLInputElement | null;
+                if (!el) return;
+                el.value = '';
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+              }, field.selector);
+  
+              const chunkSize = Math.max(1, Math.floor(value.length / 3));
+              for (let i = 0; i < value.length; i += chunkSize) {
+                const chunk = value.slice(i, i + chunkSize);
+  
+                await page.evaluate(
+                  (selector: string, chunk: string) => {
+                    const element = document.querySelector(selector) as HTMLInputElement | null;
+                    if (element) {
+                      element.value += chunk;
+                      element.dispatchEvent(new Event('input', { bubbles: true }));
+                      element.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                  },
+                  field.selector,
+                  chunk,
+                );
+  
+                await sleep(200 + Math.random() * 300);
+              }
+            }
+  
             this.logger.info(
               `${taskPrefix} ✅ Filled field ${field.selector} (${field.type}) with value: ${value} (confidence: ${field.confidence})`,
             );
-
-            await this.simulateFieldTransition(page);
-          } catch (error) {
-            this.logger.warn(
-              `${taskPrefix} Failed to fill field ${field.selector}: ${error.message}`,
-            );
+  
+            if (humanize && Math.random() < 0.1) {
+              this.logger.info(`${taskPrefix} (Humanize) Clicking outside form after field`);
+              await page.evaluate(() => {
+                const all = Array.from(document.querySelectorAll('div, p, span, section, article'));
+                const candidates = all.filter((el) => {
+                  const style = window.getComputedStyle(el);
+                  return (
+                    (el as HTMLElement).offsetParent !== null &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    style.opacity !== '0' &&
+                    el.clientHeight > 10 &&
+                    el.clientWidth > 10
+                  );
+                });
+                if (candidates.length > 0) {
+                  const el = candidates[Math.floor(Math.random() * candidates.length)] as HTMLElement;
+                  const rect = el.getBoundingClientRect();
+                  (window as any).__lastRandomClick = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+                  el.click();
+                }
+              });
+  
+              if (page.mouse && page.evaluate) {
+                const pos = await page.evaluate(() => (window as any).__lastRandomClick || { x: 100, y: 100 });
+                await page.mouse.move(pos.x, pos.y, { steps: 10 });
+              }
+  
+              await sleep(400 + Math.random() * 600);
+            }
+  
+            if (humanize) {
+              const basePause = 800 + Math.random() * 1200;
+              const readingPause = Math.random() < 0.2 ? 500 + Math.random() * 1000 : 0;
+              const quickPause = Math.random() < 0.1 ? Math.random() * 300 : 0;
+              await sleep(basePause + readingPause + quickPause);
+            } else {
+              await sleep(120);
+            }
+          } catch (error: any) {
+            this.logger.warn(`${taskPrefix} Failed to fill field ${field.selector}: ${error.message}`);
           }
         }
-
-        this.logger.info(
-          `${taskPrefix} All fields filled; URL before form submission: ${beforeSubmitUrl}`,
-        );
-        await this.sleep(1_000 + Math.random() * 1_000);
-
+  
+        this.logger.info(`${taskPrefix} All fields filled; URL before form submission: ${beforeSubmitUrl}`);
+        if (humanize) await sleep(1000 + Math.random() * 1000);
+        else await sleep(200);
+  
         if (analysis.bestForm.checkboxes?.length) {
           for (const cb of analysis.bestForm.checkboxes) {
             try {
-              const isChecked = await page.evaluate((sel) => {
-                const el = document.querySelector(sel) as HTMLInputElement;
+              const isChecked = await page.evaluate((sel: string) => {
+                const el = document.querySelector(sel) as HTMLInputElement | null;
                 return el?.checked === true;
               }, cb.selector);
-
+  
               if (!isChecked) {
-                await this.simulateMouseMovement(page, cb.selector, taskId);
-                await this.sleep(300 + Math.random() * 700);
-                await page.evaluate((sel) => {
-                  const el = document.querySelector(sel) as HTMLInputElement;
+                if (humanize && page.mouse) {
+                  const rect = await page.evaluate((selector: string) => {
+                    const el = document.querySelector(selector) as HTMLElement | null;
+                    if (!el) return null;
+                    const r = el.getBoundingClientRect();
+                    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+                  }, cb.selector);
+                  if (rect) await page.mouse.move(rect.x, rect.y, { steps: 10 });
+                }
+  
+                await sleep(humanize ? (300 + Math.random() * 700) : 120);
+  
+                await page.evaluate((sel: string) => {
+                  const el = document.querySelector(sel) as HTMLInputElement | null;
                   el?.click();
                 }, cb.selector);
-
+  
                 this.logger.info(
                   `${taskPrefix} ✅ Checked checkbox ${cb.selector}` +
                     (cb.label ? ` (${cb.label})` : '') +
                     ` — confidence: ${cb.confidence}`,
                 );
-
-                await this.sleep(400 + Math.random() * 600);
+  
+                await sleep(humanize ? (400 + Math.random() * 600) : 120);
               }
-            } catch (err) {
-              this.logger.warn(
-                `${taskPrefix} Failed to check checkbox ${cb.selector}: ${err.message}`,
-              );
+            } catch (err: any) {
+              this.logger.warn(`${taskPrefix} Failed to check checkbox ${cb.selector}: ${err.message}`);
             }
           }
         }
-
+  
         await this.takeScreenshot(page, taskId, 'after-form-fill');
-
-        const submitResult = await page.evaluate((formIndex) => {
+  
+        const submitResult = await page.evaluate((formIndex: number, fast: boolean) => {
           const forms = Array.from(document.querySelectorAll('form'));
           const form = forms[formIndex];
           if (!form) return 'form_not_found';
-          let submitButton = form.querySelector('button[type="submit"], input[type="submit"]') as
-            | HTMLButtonElement
-            | HTMLInputElement;
+  
+          let submitButton =
+            form.querySelector('button[type="submit"], input[type="submit"]') as HTMLButtonElement | HTMLInputElement | null;
+  
           if (!submitButton) {
             const buttons = Array.from(form.querySelectorAll('button'));
             submitButton = buttons.find((btn) => {
@@ -1435,85 +1591,75 @@ export class TaskProcessorService {
                 text.includes('отправить') ||
                 text.includes('подтвердить')
               );
-            }) as HTMLButtonElement;
+            }) as HTMLButtonElement | null;
           }
+  
           if (submitButton && (submitButton as HTMLElement).offsetParent !== null) {
-            (submitButton as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
-            setTimeout(
-              () => {
-                (submitButton as HTMLElement).click();
-              },
-              1_000 + Math.random() * 1_000,
-            );
+            (submitButton as HTMLElement).scrollIntoView({ behavior: fast ? 'auto' : 'smooth', block: 'center' });
+  
+            if (fast) {
+              (submitButton as HTMLElement).click();
+            } else {
+              setTimeout(() => (submitButton as HTMLElement).click(), 1000 + Math.random() * 1000);
+            }
+  
             return 'clicked_submit_button';
           } else {
-            setTimeout(
-              () => {
-                form.submit();
-              },
-              1_000 + Math.random() * 1_000,
-            );
+            if (fast) {
+              (form as HTMLFormElement).submit();
+            } else {
+              setTimeout(() => (form as HTMLFormElement).submit(), 1000 + Math.random() * 1000);
+            }
             return 'called_form_submit';
           }
-        }, analysis.bestForm.formIndex);
+        }, analysis.bestForm.formIndex, !humanize);
+  
         this.logger.info(`${taskPrefix} 🎉 Form submit result: ${submitResult}`);
       }
-
-      await this.sleep(FORM_SUBMISSION_WAIT_MS);
-
+  
+      const waitAfterSubmit = humanize ? 20_000 : 10_000;
+      this.logger.info(`${taskPrefix} Waiting ${waitAfterSubmit}ms after form submission...`);
+      await sleep(waitAfterSubmit);
+  
       await this.takeScreenshot(page, taskId, 'thank-you');
-
+  
       let afterSubmitUrl: string | null = null;
-
+  
       try {
         await page.waitForNavigation({
           waitUntil: 'domcontentloaded',
-          timeout: NAVIGATION_TIMEOUT_MS,
+          timeout: humanize ? 10_000 : 6_000,
         });
         afterSubmitUrl = page.url();
-        this.logger.info(
-          `${taskPrefix} ✅ Navigation completed after form submission: ${afterSubmitUrl}`,
-        );
+        this.logger.info(`${taskPrefix} ✅ Navigation completed after form submission: ${afterSubmitUrl}`);
       } catch {
-        this.logger.info(
-          `${taskPrefix} ℹ️ Navigation timeout after form submission (this is normal for some forms)`,
-        );
-
+        this.logger.info(`${taskPrefix} ℹ️ Navigation timeout after form submission (can be normal)`);
+  
         const currentUrl = page.url();
         if (currentUrl !== beforeSubmitUrl) {
           afterSubmitUrl = currentUrl;
-          this.logger.info(
-            `${taskPrefix} ✅ URL changed despite navigation timeout: ${afterSubmitUrl}`,
-          );
-
+          this.logger.info(`${taskPrefix} ✅ URL changed despite navigation timeout: ${afterSubmitUrl}`);
+  
           const redirectAnalysis = this.analyzeRedirect(currentUrl, beforeSubmitUrl);
           this.logger.info(`${taskPrefix} 📊 Redirect analysis: ${redirectAnalysis.reason}`);
         } else {
-          const submissionResult = await this.detectFormSubmissionSuccess(
-            page,
-            taskId,
-            beforeSubmitUrl,
-          );
-
+          const submissionResult = await this.detectFormSubmissionSuccess(page, taskId, beforeSubmitUrl);
+  
           if (submissionResult.isSuccess) {
-            this.logger.info(
-              `${taskPrefix} ✅ Form submission appears successful: ${submissionResult.reason}`,
-            );
+            this.logger.info(`${taskPrefix} ✅ Form submission appears successful: ${submissionResult.reason}`);
             afterSubmitUrl = submissionResult.url;
           } else {
-            this.logger.info(
-              `${taskPrefix} ℹ️ ${submissionResult.reason} - treating as potential success`,
-            );
+            this.logger.info(`${taskPrefix} ℹ️ ${submissionResult.reason} - treating as potential success`);
             afterSubmitUrl = currentUrl;
           }
         }
       }
-
+  
       return afterSubmitUrl;
-    } catch (error) {
+    } catch (error: any) {
       if (
-        error.message.includes('Execution context was destroyed') ||
-        error.message.includes('Target closed')
+        error?.message?.includes('Execution context was destroyed') ||
+        error?.message?.includes('Target closed')
       ) {
         this.logger.warn(`${taskPrefix} Page context destroyed during form filling`);
         return null;
@@ -1521,7 +1667,7 @@ export class TaskProcessorService {
       this.logger.error(`${taskPrefix} Error filling form with AI: ${error.message}`, error);
       return null;
     }
-  }
+  }  
 
   private async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
