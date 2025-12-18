@@ -21,7 +21,7 @@ export interface TaskStatisticsDto {
   successCount: number;
   redirects: Array<{
     url: string;
-    count: number;
+    at: string;
   }>;
 }
 

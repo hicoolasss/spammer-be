@@ -36,15 +36,20 @@ export class Task {
   @Prop({ type: Boolean, default: false })
   isQuiz: boolean;
 
-  @Prop({ 
+  @Prop({
     type: {
       total: { type: Number, default: 0 },
-      success: { type: Object, default: {} }
+      redirects: {
+        type: [
+          {
+            url: { type: String, required: true },
+            at: { type: Date, required: true },
+          },
+        ],
+        default: [],
+      },
     },
-    default: { 
-      total: 0, 
-      success: {} 
-    }
+    default: { total: 0, redirects: [] },
   })
   result: TaskResult;
 
