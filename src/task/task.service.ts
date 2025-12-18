@@ -59,7 +59,9 @@ export class TaskService {
       this.logger.error(`Error enqueuing loop for task ${created._id}:`, error);
     }
   
-    const profile = task!.profileId as unknown as GeoProfileDto;
+    const profile = task.profileId
+      ? (task.profileId as unknown as GeoProfileDto)
+      : null;
   
     return {
       _id: task!._id.toString(),
@@ -117,13 +119,16 @@ export class TaskService {
     const items = await Promise.all(
       tasks.map(async (task) => {
         const result = await this.getTaskStatistics(task._id.toString());
+        const profile = task.profileId
+      ? (task.profileId as unknown as GeoProfileDto)
+      : null;
 
         return {
           _id: task._id.toString(),
           url: task.url,
           geo: task.geo,
           createdBy: task.createdBy,
-          profile: task.profileId,
+          profile,
           result,
           status: task.status,
           createdAt: task.createdAt.toISOString(),
@@ -160,38 +165,49 @@ export class TaskService {
   
     const prevStatus = task.status;
   
-    Object.assign(task, dto);
+    const patch: Partial<UpdateTaskDto> & { status?: TaskStatus } = { ...(dto as any) };
   
-    const statusProvided = typeof (dto as any).status !== 'undefined';
-    const nextStatus = statusProvided ? (dto as any).status : prevStatus;
+    if (Object.prototype.hasOwnProperty.call(dto, 'profileId') && patch.profileId === null) {
+      patch.profileId = undefined;
+    }
   
-    const isResuming = statusProvided && prevStatus !== TaskStatus.ACTIVE && nextStatus === TaskStatus.ACTIVE;
+    const statusProvided = Object.prototype.hasOwnProperty.call(dto as any, 'status');
+    const nextStatus = statusProvided ? (patch as any).status : prevStatus;
+  
+    const isResuming =
+      statusProvided && prevStatus !== TaskStatus.ACTIVE && nextStatus === TaskStatus.ACTIVE;
+  
+    Object.assign(task, patch);
   
     if (isResuming) {
       task.isRunning = false;
     }
   
     await task.save();
+  
     this.logger.info(
       `[TASK_UPDATE] Task ${taskId} updated` +
-        (statusProvided ? ` (status: ${prevStatus} -> ${nextStatus})` : ''),
+        (statusProvided ? ` (status: ${prevStatus} -> ${nextStatus})` : '') +
+        (Object.prototype.hasOwnProperty.call(dto, 'profileId')
+          ? ` (profileId: ${(dto as any).profileId})`
+          : ''),
     );
   
-    try {
-      if (isResuming) {
+    if (isResuming) {
+      try {
         await this.bullMQService.enqueueTaskLoop(taskId);
         this.logger.info(`[TASK_UPDATE] Enqueued loop job after resume for task ${taskId}`);
+      } catch (e: any) {
+        this.logger.error(
+          `[TASK_UPDATE] Failed to enqueue loop job for task ${taskId}: ${e?.message ?? e}`,
+          e,
+        );
       }
-    } catch (e: any) {
-      this.logger.error(
-        `[TASK_UPDATE] Failed to sync BullMQ loop job for task ${taskId}: ${e?.message ?? e}`,
-        e,
-      );
     }
   
     const populatedTask = await this.taskModel
       .findById(taskId)
-      .populate<{ profileId: GeoProfileDto }>({
+      .populate<{ profileId: GeoProfileDto | null }>({
         path: 'profileId',
         select:
           'name geo leadKey userAgentKey fbclidKey leadCount userAgentCount fbclidCount createdBy createdAt',
@@ -200,12 +216,16 @@ export class TaskService {
   
     const result = await this.getTaskStatistics(populatedTask!._id.toString());
   
+    const profile = populatedTask?.profileId
+      ? (populatedTask.profileId as unknown as GeoProfileDto)
+      : null;
+  
     return {
       _id: populatedTask!._id.toString(),
       url: populatedTask!.url,
       geo: populatedTask!.geo,
       createdBy: populatedTask!.createdBy,
-      profile: populatedTask!.profileId,
+      profile,
       result,
       status: populatedTask!.status,
       createdAt: populatedTask!.createdAt.toISOString(),

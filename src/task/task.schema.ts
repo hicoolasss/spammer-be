@@ -14,8 +14,8 @@ export class Task {
   @Prop({ type: String, required: true })
   geo: string;
 
-  @Prop({ type: Types.ObjectId, ref: GeoProfile.name, required: true })
-  profileId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: GeoProfile.name, required: false })
+  profileId?: Types.ObjectId;
 
   @Prop({ required: true })
   createdBy: string;
