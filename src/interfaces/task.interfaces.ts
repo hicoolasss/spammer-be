@@ -1,4 +1,9 @@
+export interface TaskRedirectEvent {
+  url: string;
+  at: Date;
+}
+
 export interface TaskResult {
   total: number;
-  success: Record<string, number>;
+  redirects: TaskRedirectEvent[];
 }

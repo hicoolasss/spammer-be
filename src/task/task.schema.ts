@@ -14,20 +14,11 @@ export class Task {
   @Prop({ type: String, required: true })
   geo: string;
 
-  @Prop({ type: Types.ObjectId, ref: GeoProfile.name, required: true })
-  profileId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: GeoProfile.name, required: false })
+  profileId?: Types.ObjectId;
 
   @Prop({ required: true })
   createdBy: string;
-
-  @Prop({ required: true })
-  intervalMinutes: number;
-
-  @Prop({ required: true })
-  timeFrom: string;
-
-  @Prop({ required: true })
-  timeTo: string;
 
   @Prop({
     type: String,
@@ -45,15 +36,20 @@ export class Task {
   @Prop({ type: Boolean, default: false })
   isQuiz: boolean;
 
-  @Prop({ 
+  @Prop({
     type: {
       total: { type: Number, default: 0 },
-      success: { type: Object, default: {} }
+      redirects: {
+        type: [
+          {
+            url: { type: String, required: true },
+            at: { type: Date, required: true },
+          },
+        ],
+        default: [],
+      },
     },
-    default: { 
-      total: 0, 
-      success: {} 
-    }
+    default: { total: 0, redirects: [] },
   })
   result: TaskResult;
 
