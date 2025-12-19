@@ -1,6 +1,6 @@
 import { CountryCode } from '@enums';
 import { Injectable, InternalServerErrorException, OnModuleDestroy } from '@nestjs/common';
-import { BROWSER_ARGUMENTS, IS_DEV_ENV, IS_PROD_ENV, LogWrapper } from '@utils';
+import { BROWSER_ARGUMENTS, IS_PROD_ENV, LogWrapper } from '@utils';
 import { LOCALE_SETTINGS } from '@utils';
 import { getBrowserSpoofScript, getRandomItem, HEADERS, MOBILE_VIEWPORTS } from '@utils';
 import * as dns from 'dns';
@@ -120,7 +120,7 @@ export class PuppeteerService implements OnModuleDestroy {
       const proxyArg = `--proxy-server=http://${proxy.host}:${proxy.port}`;
   
       const browser = await launch({
-        headless: false,
+        headless: IS_PROD_ENV,
         dumpio: true,
         pipe: true,
         args: BROWSER_ARGUMENTS(proxyArg, locale, timeZone),
