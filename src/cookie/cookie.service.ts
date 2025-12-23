@@ -11,7 +11,7 @@ export class CookieService {
       sameSite: IS_PROD_ENV ? 'none' : 'lax',
       domain: IS_PROD_ENV ? process.env.DOMAIN : undefined,
       maxAge: parseInt(
-        process.env.JWT_ACCESS_COOKIE_EXPIRATION ?? '900000',
+        process.env.JWT_ACCESS_COOKIE_EXPIRATION ?? '90_0000',
         10,
       ),
     });
@@ -23,7 +23,7 @@ export class CookieService {
       secure: IS_PROD_ENV,
       sameSite: IS_PROD_ENV ? 'none' : 'lax',
       domain: IS_PROD_ENV ? process.env.DOMAIN : undefined,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: 7 * 24 * 60 * 60 * 1_000,
     });
   }
 

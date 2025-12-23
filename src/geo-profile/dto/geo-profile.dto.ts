@@ -12,12 +12,6 @@ export interface GeoProfileDto {
   fbclidCount?: number;
 }
 
-export interface TaskGeoProfileDto {
-  _id: string;
-  name: string;
-  geo: string;
-}
-
 export interface GeoProfileListResponseDto {
   items: GeoProfileDto[];
   total: number;

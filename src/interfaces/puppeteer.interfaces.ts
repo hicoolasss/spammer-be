@@ -1,5 +1,4 @@
 import { float } from "aws-sdk/clients/cloudfront";
-import { Page } from "puppeteer";
 
 export interface MobileViewport {
   name: string;
@@ -10,11 +9,4 @@ export interface MobileViewport {
   hasTouch?: boolean;
   screenSize?: float;
   densityPPI?: number;
-}
-
-export interface ArchiveContext {
-  page: Page;
-  linkUrl: string;
-  locale: string;
-  userAgent: string;
 }

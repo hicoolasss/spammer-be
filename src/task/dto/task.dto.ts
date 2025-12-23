@@ -13,6 +13,7 @@ export interface TaskDto {
   updatedAt: string;
   lastRunAt?: string;
   shouldClickRedirectLink?: boolean;
+  isQuiz?: boolean;
 }
 
 export interface TaskStatisticsDto {
@@ -30,14 +31,17 @@ export interface CreateTaskDto {
   profileId?: string;
   applicationsNumber: number;
   shouldClickRedirectLink?: boolean;
+  isQuiz?: boolean;
 }
 
 export interface UpdateTaskDto {
   url?: string;
   geo?: string;
   profileId?: string | null;
+  status?: TaskStatus;
   applicationsNumber?: number;
   shouldClickRedirectLink?: boolean;
+  isQuiz?: boolean;
 }
 
 export interface TaskListResponseDto {

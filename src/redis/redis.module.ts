@@ -3,12 +3,15 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LogWrapper } from '@utils';
 import { createClient, RedisClientType } from 'redis';
 
+import { RedisService } from './redis.service';
+
 export const REDIS_CLIENT = 'REDIS_CLIENT';
 
 @Global()
 @Module({
   imports: [ConfigModule],
   providers: [
+    ConfigService,
     {
       provide: REDIS_CLIENT,
       useFactory: async (config: ConfigService): Promise<RedisClientType> => {
@@ -34,7 +37,14 @@ export const REDIS_CLIENT = 'REDIS_CLIENT';
       },
       inject: [ConfigService],
     },
+    {
+      provide: RedisService,
+      useFactory: (redisClient: RedisClientType) => {
+        return new RedisService(redisClient);
+      },
+      inject: [REDIS_CLIENT],
+    },
   ],
-  exports: [REDIS_CLIENT],
+  exports: [REDIS_CLIENT, RedisService],
 })
 export class RedisModule {}

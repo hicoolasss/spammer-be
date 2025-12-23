@@ -100,10 +100,6 @@ export class UserService {
       .exec();
   }
 
-  async delete(userId: string): Promise<void> {
-    await this.userModel.deleteOne({ _id: userId }).exec();
-  }
-
   async updateProfile(userId: string, dto: UpdateProfileDto): Promise<UserDto> {
     try {
       const user = await this.findById(userId);

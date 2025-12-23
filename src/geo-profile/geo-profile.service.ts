@@ -32,7 +32,7 @@ export class GeoProfileService {
       ? dto.geo
       : CountryCode.ALL;
     if (geo === CountryCode.ALL && dto.geo !== CountryCode.ALL) {
-      console.warn(`Geo '${dto.geo}' is not a valid CountryCode, using 'ALL'`);
+      this.logger.warn(`Geo '${dto.geo}' is not a valid CountryCode, using 'ALL'`);
     }
     const profile = await this.profileModel.create({
       name: dto.name,

@@ -10,7 +10,6 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
       const SEED = ${canvasSeed};
       const LOCALE = '${locale}';
       const TIMEZONE = '${timeZone}';
-
       // ============ 1. TIMEZONE ============
       const OrigDateTimeFormat = Intl.DateTimeFormat;
       Intl.DateTimeFormat = function(loc, options = {}) {
@@ -19,12 +18,10 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
       };
       Intl.DateTimeFormat.prototype = OrigDateTimeFormat.prototype;
       Intl.DateTimeFormat.supportedLocalesOf = OrigDateTimeFormat.supportedLocalesOf;
-
       Date.prototype.getTimezoneOffset = function() {
         const month = this.getMonth();
         return (month >= 3 && month <= 9) ? -120 : -60; // CET/CEST
       };
-
       // ============ 2. NAVIGATOR ============
       const defineNav = (prop, value) => {
         try {
@@ -45,7 +42,6 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
       defineNav('pdfViewerEnabled', true);
       defineNav('cookieEnabled', true);
       defineNav('onLine', true);
-
       // ============ 3. CANVAS FINGERPRINT ============
       const addNoise = (canvas) => {
         try {
@@ -72,7 +68,6 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
         addNoise(this);
         return origToBlob.apply(this, args);
       };
-
       // ============ 4. WEBGL ============
       const WEBGL_EXTENSIONS = [
         "ANGLE_instanced_arrays", "EXT_blend_minmax", "EXT_float_blend",
@@ -84,7 +79,6 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
         "WEBGL_debug_shaders", "WEBGL_depth_texture", "WEBGL_lose_context",
         "WEBGL_multi_draw"
       ];
-
       const patchWebGL = (proto) => {
         const origGetParam = proto.getParameter;
         const origGetExts = proto.getSupportedExtensions;
@@ -110,7 +104,6 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
       
       if (window.WebGLRenderingContext) patchWebGL(WebGLRenderingContext.prototype);
       if (window.WebGL2RenderingContext) patchWebGL(WebGL2RenderingContext.prototype);
-
       // ============ 5. AUDIO FINGERPRINT ============
       const OrigAudioContext = window.AudioContext || window.webkitAudioContext;
       if (OrigAudioContext) {
@@ -125,7 +118,6 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
         PatchedAudioContext.prototype = OrigAudioContext.prototype;
         window.AudioContext = window.webkitAudioContext = PatchedAudioContext;
       }
-
       // ============ 6. WEBRTC БЛОКИРОВКА ============
       if (window.RTCPeerConnection) {
         window.RTCPeerConnection = function() {
@@ -138,7 +130,6 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
           };
         };
       }
-
       // ============ 7. MEDIA QUERIES ============
       const originalMatchMedia = window.matchMedia;
       window.matchMedia = function(query) {
@@ -160,7 +151,6 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
         }
         return originalMatchMedia.call(window, query);
       };
-
       // ============ 8. PERMISSIONS ============
       if (navigator.permissions) {
         navigator.permissions.query = async function(desc) {
@@ -169,7 +159,6 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
           return { state, onchange: null, addEventListener: () => {}, removeEventListener: () => {} };
         };
       }
-
       // ============ 9. УДАЛЕНИЕ СЛЕДОВ АВТОМАТИЗАЦИИ ============
       delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
       delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
@@ -182,7 +171,6 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
       try {
         Object.defineProperty(performance, 'memory', { get: () => undefined });
       } catch(e) {}
-
       // ============ 11. CONNECTION ============
       if (navigator.connection) {
         Object.defineProperty(navigator.connection, 'type', { get: () => '4g' });
@@ -190,19 +178,15 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
         Object.defineProperty(navigator.connection, 'downlink', { get: () => 10 });
         Object.defineProperty(navigator.connection, 'rtt', { get: () => 50 });
       }
-
       // ============ 12. GAMEPADS ============
       navigator.getGamepads = () => [];
-
       // ============ 13. TOUCH ============
       window.ontouchstart = null;
       document.ontouchstart = null;
-
       // ============ 14. NOTIFICATION ============
       if (window.Notification) {
         Object.defineProperty(Notification, 'permission', { get: () => 'default' });
       }
-
       console.log('✅ Browser spoof injected | SEED=' + SEED.toFixed(2));
     })();
   `;
