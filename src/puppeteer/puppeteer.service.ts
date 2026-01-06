@@ -8,20 +8,45 @@ import { Browser, launch, Page } from 'puppeteer';
 import { ProxyConfig } from 'src/types/proxy.types';
 import { browserOpenTimes } from 'src/utils/puppeteer-logging';
 
-const PROXIES: ProxyConfig[] = [
+type ProxyProvider = {
+  name: string;
+  host: string;
+  port: number;
+  build: (geo: CountryCode) => { username: string; password: string };
+};
+
+const parseSupportedGeos = (): Set<string> => {
+  const raw = process.env.SUPPORTED_PROXY_GEOS?.trim();
+  if (!raw) return new Set(['CZ', 'SK', 'DE']);
+  return new Set(raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean));
+};
+
+const SUPPORTED_GEOS = parseSupportedGeos();
+
+const PROVIDERS: ProxyProvider[] = [
   {
-    name: 'PacketStream-CZ',
-    host: process.env.PS_CZ_PROXY_HOST!,
-    port: Number(process.env.PS_CZ_PROXY_PORT!),
-    username: process.env.PS_CZ_PROXY_USERNAME!,
-    password: process.env.PS_CZ_PROXY_PASSWORD!,
+    name: 'PacketStream',
+    host: process.env.PS_PROXY_HOST ?? '',
+    port: Number(process.env.PS_PROXY_PORT ?? ''),
+    build: (geo) => {
+      const tpl = process.env.PS_PROXY_PASSWORD_TEMPLATE ?? '';
+      return {
+        username: process.env.PS_PROXY_USERNAME ?? '',
+        password: tpl.replace('{GEO}', String(geo)),
+      };
+    },
   },
   {
-    name: 'PIA-CZ',
-    host: process.env.PIA_CZ_PROXY_HOST!,
-    port: Number(process.env.PIA_CZ_PROXY_PORT!),
-    username: process.env.PIA_CZ_PROXY_USERNAME!,
-    password: process.env.PIA_CZ_PROXY_PASSWORD!,
+    name: 'PIA',
+    host: process.env.PIA_PROXY_HOST ?? '',
+    port: Number(process.env.PIA_PROXY_PORT ?? ''),
+    build: (geo) => {
+      const tpl = process.env.PIA_PROXY_USERNAME_TEMPLATE ?? '';
+      return {
+        username: tpl.replace('{geo}', String(geo).toLowerCase()),
+        password: process.env.PIA_PROXY_PASSWORD ?? '',
+      };
+    },
   },
 ];
 
@@ -45,9 +70,9 @@ export class PuppeteerService implements OnModuleDestroy {
   }
 
   async onModuleInit() {
-    for (const [i, p] of PROXIES.entries()) {
-      if (!p.host || !p.port || !p.username || !p.password) {
-        this.logger.error(`[PuppeteerService] Proxy #${i} (${p.name}) is not fully configured`);
+    for (const [i, p] of PROVIDERS.entries()) {
+      if (!p.host || !Number.isFinite(p.port) || p.port <= 0) {
+        this.logger.error(`[PuppeteerService] Provider #${i} (${p.name}) host/port invalid`);
       }
     }
   }
@@ -63,7 +88,7 @@ export class PuppeteerService implements OnModuleDestroy {
     const localeSettings = LOCALE_SETTINGS[proxyGeo] || LOCALE_SETTINGS.ALL;
     const { locale, timeZone } = localeSettings;
   
-    const proxy = this.getNextProxy(taskId);
+    const proxy = this.getNextProxy(taskId, proxyGeo);
   
     const browser = await this.createBrowser(locale, timeZone, proxy);
     const context = await browser.createBrowserContext();
@@ -155,13 +180,37 @@ export class PuppeteerService implements OnModuleDestroy {
 
   private taskProxyIndex = new Map<string, number>();
 
-  private getNextProxy(taskId: string): ProxyConfig {
-    if (PROXIES.length === 0) throw new Error('No proxies configured');
+  private normalizeGeo(geo: CountryCode): CountryCode {
+    const g = String(geo).toUpperCase();
+    if (!SUPPORTED_GEOS.has(g)) {
+      this.logger.warn(`[Proxy] Unsupported geo="${geo}", fallback to CZ`);
+      return CountryCode.CZ;
+    }
+    return geo;
+  }
+
+  private getNextProxy(taskId: string, geo: CountryCode): ProxyConfig {
+    if (PROVIDERS.length === 0) throw new Error('No proxy providers configured');
+
+    geo = this.normalizeGeo(geo);
 
     const idx = this.taskProxyIndex.get(taskId) ?? 0;
-    const proxy = PROXIES[idx % PROXIES.length];
-
+    const provider = PROVIDERS[idx % PROVIDERS.length];
     this.taskProxyIndex.set(taskId, idx + 1);
+
+    const { username, password } = provider.build(geo);
+
+    const proxy: ProxyConfig = {
+      name: `${provider.name}-${geo}`,
+      host: provider.host,
+      port: provider.port,
+      username,
+      password,
+    };
+
+    if (!proxy.host || !Number.isFinite(proxy.port) || !proxy.username || !proxy.password) {
+      throw new Error(`Proxy "${proxy.name}" is not fully configured (check env templates)`);
+    }
 
     this.logger.debug(
       `[PuppeteerService] Task ${taskId}: using proxy "${proxy.name}" (${proxy.host}:${proxy.port})`,
