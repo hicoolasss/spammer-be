@@ -13,10 +13,7 @@ import { Browser, Page } from 'puppeteer';
 import { AIService } from '../ai/ai.service';
 import { PuppeteerService } from '../puppeteer/puppeteer.service';
 import { RedisService } from '../redis/redis.service';
-import { calculateMaxConcurrentTasks } from '../utils/concurrency-limits';
-
-const NAVIGATION_TIMEOUT_MS = 15_000;
-const FORM_SUBMISSION_WAIT_MS = 20_000;
+import { getMaxConcurrentTasks } from '../utils/concurrency-limits';
 
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
   return Promise.race([
@@ -52,7 +49,7 @@ export class TaskProcessorService {
     private readonly redisService: RedisService,
     private readonly aiService: AIService,
   ) {
-    this.MAX_CONCURRENT_TASKS = calculateMaxConcurrentTasks();
+    this.MAX_CONCURRENT_TASKS = getMaxConcurrentTasks();
   }
 
   async processTasks(taskId: string): Promise<void> {
@@ -408,7 +405,7 @@ export class TaskProcessorService {
       this.logger.debug(`[TASK_${taskId}] Geo: ${geo}`);
       this.logger.info(`[TASK_${taskId}] Processing lead: ${JSON.stringify(leadData)}`);
   
-      const TIMEOUT_MS = 11 * 60 * 1_000;
+      const TIMEOUT_MS = 7 * 60 * 1_000;
   
       this.logger.debug(
         `[TASK_${taskId}] Calling runPuppeteerTask with geo=${geo}, userAgent=${userAgent}, url=${finalUrl}`,
