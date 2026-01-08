@@ -17,7 +17,7 @@ type ProxyProvider = {
 
 const parseSupportedGeos = (): Set<string> => {
   const raw = process.env.SUPPORTED_PROXY_GEOS?.trim();
-  if (!raw) return new Set(['CZ', 'SK', 'DE']);
+  if (!raw) return new Set(['CZ', 'SK', 'DE', 'RO']);
   return new Set(raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean));
 };
 

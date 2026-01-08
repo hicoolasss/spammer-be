@@ -3,10 +3,10 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Job, Queue, Worker } from 'bullmq';
 import Redis from 'ioredis';
 import { Model } from 'mongoose';
+import { getMaxConcurrentTasks } from 'src/utils/concurrency-limits';
 
 import { TaskStatus } from '../enums';
 import { Task } from '../task/task.schema';
-import { calculateMaxConcurrentTasks } from '../utils/concurrency-limits';
 import { LogWrapper } from '../utils/LogWrapper';
 import { TaskProcessorService } from './task-processor.service';
 
@@ -23,7 +23,7 @@ export class BullMQService implements OnModuleDestroy {
   private taskQueue: Queue;
   private worker: Worker;
   private isInitialized = false;
-  private readonly MAX_CONCURRENT_TASKS: number = calculateMaxConcurrentTasks();
+  private readonly MAX_CONCURRENT_TASKS: number = getMaxConcurrentTasks();
 
   constructor(
     @InjectModel(Task.name) private taskModel: Model<Task>,
