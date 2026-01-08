@@ -78,6 +78,35 @@ export const PHONE_PREFIXES_DE = [
   '0170', '0171', '0172', '0173', '0174', '0175', '0176', '0177', '0178', '0179'
 ];
 
+export const FIRST_NAMES_RO = [
+  'Andrei', 'Mihai', 'Alexandru', 'Ștefan', 'Gabriel', 'Daniel', 'Adrian',
+  'Cristian', 'George', 'Florin', 'Marius', 'Vlad', 'Victor', 'Bogdan',
+  'Radu', 'Dragoș', 'Răzvan', 'Ionuț', 'Cătălin', 'Lucian', 'Nicolae',
+  'Sorin', 'Darius', 'Cosmin', 'Claudiu', 'Valentin', 'Marian', 'Alin',
+  'Robert', 'Paul'
+];
+
+export const LAST_NAMES_RO = [
+  'Popescu', 'Ionescu', 'Popa', 'Dumitru', 'Stan', 'Stoica', 'Gheorghe',
+  'Rusu', 'Marin', 'Tudor', 'Dobre', 'Matei', 'Ilie', 'Petrescu', 'Barbu',
+  'Lungu', 'Constantin', 'Diaconescu', 'Toma', 'Sandu', 'Mihai', 'Nistor',
+  'Florea', 'Munteanu', 'Preda', 'Neagu', 'Sava', 'Dragomir', 'Enache', 'Mocanu'
+];
+
+export const EMAIL_DOMAINS_RO = [
+  'gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com',
+  'proton.me', 'protonmail.com', 'mail.ro'
+];
+
+export const PHONE_PREFIXES_RO = [
+  '0720', '0721', '0722', '0723', '0724',
+  '0730', '0731', '0732', '0733', '0734',
+  '0740', '0741', '0742', '0743', '0744',
+  '0750', '0751', '0752', '0753', '0754',
+  '0760', '0761', '0762', '0763', '0764',
+  '0770', '0771', '0772', '0773', '0774'
+];
+
 function getRandomElement<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -153,6 +182,16 @@ function generateRandomPhoneDe(): string {
   return `${normalizedPrefix}${part1}${part2}`;
 }
 
+function generateRandomPhoneRo(): string {
+  const prefix = getRandomElement(PHONE_PREFIXES_RO);
+  const normalizedPrefix = prefix.slice(1);
+
+  const part1 = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  const part2 = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+
+  return `${normalizedPrefix}${part1}${part2}`;
+}
+
 export function generateLeadForGeo(geo: string): LeadData {
   const country = (geo ?? '').trim().toUpperCase();
 
@@ -161,6 +200,15 @@ export function generateLeadForGeo(geo: string): LeadData {
     const lastName = getRandomElement(LAST_NAMES_DE);
     const email = generateRandomEmail(firstName, lastName, EMAIL_DOMAINS_DE);
     const phone = generateRandomPhoneDe();
+
+    return { name: firstName, lastname: lastName, phone, email };
+  }
+
+  if (country === 'RO') {
+    const firstName = getRandomElement(FIRST_NAMES_RO);
+    const lastName = getRandomElement(LAST_NAMES_RO);
+    const email = generateRandomEmail(firstName, lastName, EMAIL_DOMAINS_RO);
+    const phone = generateRandomPhoneRo();
 
     return { name: firstName, lastname: lastName, phone, email };
   }
