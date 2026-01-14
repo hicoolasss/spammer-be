@@ -1,17 +1,23 @@
 import { LeadData } from '@interfaces';
 
 export const FIRST_NAMES_CZ = [
-  'Jan', 'Petr', 'Martin', 'Tomáš', 'Pavel', 'Jaroslav', 'Miroslav', 'Jiří',
-  'Zdeněk', 'František', 'Josef', 'Karel', 'Václav', 'Milan', 'Lukáš',
-  'Ondřej', 'Roman', 'David', 'Michal', 'Radek', 'Libor', 'Aleš', 'Stanislav',
-  'Daniel', 'Filip', 'Adam', 'Vojtěch', 'Patrik', 'Štěpán', 'Marek'
+  'Antonín', 'Bohumil', 'Bořivoj', 'Břetislav', 'Cyril', 'Dalibor', 'Emil', 'Erik',
+  'Evžen', 'Hynek', 'Ivan', 'Jáchym', 'Jakub', 'Jonáš', 'Julius', 'Leopold',
+  'Lubomír', 'Marcel', 'Matěj', 'Norbert', 'Oldřich', 'Otakar', 'Radoslav',
+  'Rostislav', 'Sebastian', 'Svatopluk', 'Tadeáš', 'Teodor', 'Tibor', 'Viktor',
+  'Vilém', 'Vratislav', 'Zbyněk', 'Boris', 'Denis', 'Eduard', 'Igor', 'Kevin',
+  'Kristián', 'Leonard', 'Matyáš', 'Maxim', 'Nikolaj', 'Oliver', 'Samuel',
+  'Tobiáš', 'Valentin', 'Vladimír'
 ];
 
 export const LAST_NAMES_CZ = [
-  'Novák', 'Svoboda', 'Novotný', 'Dvořák', 'Černý', 'Procházka', 'Kučera', 'Veselý',
-  'Horák', 'Němec', 'Marek', 'Pokorný', 'Pospíšil', 'Hájek', 'Jelínek',
-  'Král', 'Růžička', 'Beneš', 'Fiala', 'Sedláček', 'Dostál', 'Šimek', 'Bláha',
-  'Malý', 'Urban', 'Kadlec', 'Zeman', 'Kolář', 'Kříž', 'Vaněk'
+  'Bartoš', 'Bureš', 'Coufal', 'Dočekal', 'Havel', 'Holub', 'Konečný', 'Kopecký',
+  'Mach', 'Moravec', 'Musil', 'Navrátil', 'Pavlík', 'Pešek', 'Petráš', 'Richter',
+  'Skála', 'Soukup', 'Stehlík', 'Strnad', 'Šafář', 'Ševčík', 'Šmíd', 'Štěpánek',
+  'Tichý', 'Toman', 'Vacek', 'Valenta', 'Vávra', 'Vlk', 'Zahradník', 'Zoufalý',
+  'Bílý', 'Burian', 'Čech', 'Hejduk', 'Chalupa', 'Ježek', 'Kalina', 'Kohout',
+  'Kratochvíl', 'Mlynář', 'Pilař', 'Sládek', 'Švarc', 'Tomášek', 'Uhlíř', 'Zima',
+  'Žák'
 ];
 
 export const EMAIL_DOMAINS_CZ = [
