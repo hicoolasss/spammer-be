@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import { Model } from 'mongoose';
 import * as path from 'path';
 import { Browser, Page } from 'puppeteer';
+import { CaptchaService } from 'src/captcha/captcha-solver.service';
 
 import { AIService } from '../ai/ai.service';
 import { PuppeteerService } from '../puppeteer/puppeteer.service';
@@ -48,6 +49,7 @@ export class TaskProcessorService {
     private readonly puppeteerService: PuppeteerService,
     private readonly redisService: RedisService,
     private readonly aiService: AIService,
+    private readonly captchaService: CaptchaService,
   ) {
     this.MAX_CONCURRENT_TASKS = getMaxConcurrentTasks();
   }
@@ -577,6 +579,25 @@ export class TaskProcessorService {
       if (finalPage.isClosed()) {
         this.logger.warn(`[TASK_${taskId}] Page was closed during navigation`);
         return;
+      }
+
+      // Check and handle Cloudflare Turnstile challenge page
+      const isChallenge = await this.captchaService.isChallengePage(finalPage);
+      if (isChallenge) {
+        this.logger.info(`[TASK_${taskId}] Detected Cloudflare challenge page, solving...`);
+        const challengeResult = await this.captchaService.solveTurnstileChallenge(
+          finalPage,
+          taskId,
+          finalUrl,
+        );
+        
+        if (!challengeResult.success) {
+          this.logger.error(`[TASK_${taskId}] Failed to solve challenge: ${challengeResult.error}`);
+          return;
+        }
+        
+        this.logger.info(`[TASK_${taskId}] Challenge solved successfully`);
+        await this.sleep(3000);
       }
   
       if (shouldClickRedirectLink) {
@@ -1575,6 +1596,13 @@ export class TaskProcessorService {
         }
   
         await this.takeScreenshot(page, taskId, 'after-form-fill');
+
+        // Check and solve form captcha (Turnstile) before submission
+        const formCaptchaSolved = await this.captchaService.checkAndSolveFormCaptcha(page, taskId || 'unknown');
+        if (!formCaptchaSolved) {
+          this.logger.warn(`${taskPrefix} Form captcha solving failed, continuing with submission anyway...`);
+        }
+        await sleep(1000);
   
         const submitResult = await page.evaluate((formIndex: number, fast: boolean) => {
           const forms = Array.from(document.querySelectorAll('form'));

@@ -5,6 +5,7 @@ import { LOCALE_SETTINGS } from '@utils';
 import { getBrowserSpoofScript, getRandomItem, HEADERS, MOBILE_VIEWPORTS } from '@utils';
 import * as dns from 'dns';
 import { Browser, launch, Page } from 'puppeteer';
+import { CaptchaService } from 'src/captcha/captcha-solver.service';
 import { ProxyConfig } from 'src/types/proxy.types';
 import { browserOpenTimes } from 'src/utils/puppeteer-logging';
 
@@ -53,6 +54,8 @@ const PROVIDERS: ProxyProvider[] = [
 @Injectable()
 export class PuppeteerService implements OnModuleDestroy {
   private readonly logger = new LogWrapper(PuppeteerService.name);
+
+  constructor(private readonly captchaService: CaptchaService) {}
 
   private sanitizeModuleScript(script: string): string {
     return script.replace(/^\s*(export|import)\s.*$/gm, '');
@@ -109,6 +112,9 @@ export class PuppeteerService implements OnModuleDestroy {
     const localeRaw = getBrowserSpoofScript(locale, timeZone);
     const localeScript = this.sanitizeModuleScript(localeRaw);
     await page.evaluateOnNewDocument(`(()=>{${localeScript}})();`);
+
+    const turnstileScript = this.captchaService.getTurnstileInjectScript();
+    await page.evaluateOnNewDocument(turnstileScript);
   
     const baseViewport = getRandomItem(MOBILE_VIEWPORTS);
     const isLandscape = baseViewport.screenSize > 7 && Math.random() < 0.5;
