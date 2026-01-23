@@ -61,23 +61,21 @@ export class CaptchaService {
   }
 
   async isChallengePage(page: Page): Promise<boolean> {
-    try {
-      if (page.isClosed()) return false;
-
-      return await page.evaluate(() => {
-        const title = document.title.toLowerCase();
-        const body = document.body?.innerText?.toLowerCase() || '';
-        return (
-          title.includes('just a moment') ||
-          body.includes('verify you are human') ||
-          body.includes('checking your browser') ||
-          body.includes('please wait') ||
-          body.includes('one more step')
-        );
-      });
-    } catch {
+    return await page.evaluate(() => {
+      // 1. Проверка по глобальному объекту (самый точный метод)
+      if ((window as any)._cf_chl_opt) return true;
+  
+      // 2. Проверка по скрытому инпуту ответа Turnstile
+      if (document.querySelector('input[name="cf-turnstile-response"]')) return true;
+  
+      // 3. Проверка по наличию Ray ID в тексте или классу
+      if (document.querySelector('.ray-id') || document.body.innerHTML.includes('ray-id')) return true;
+  
+      // 4. Проверка по специфическому скрипту оркестрации
+      if (document.querySelector('script[src*="challenge-platform/h/b/orchestrate"]')) return true;
+  
       return false;
-    }
+    });
   }
 
   async solveTurnstileChallenge(
