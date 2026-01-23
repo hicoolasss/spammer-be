@@ -4,10 +4,15 @@ import { BROWSER_ARGUMENTS, IS_PROD_ENV, LogWrapper } from '@utils';
 import { LOCALE_SETTINGS } from '@utils';
 import { getBrowserSpoofScript, getRandomItem, HEADERS, MOBILE_VIEWPORTS } from '@utils';
 import * as dns from 'dns';
-import { Browser, launch, Page } from 'puppeteer';
+import { Browser, Page } from 'puppeteer';
+import puppeteer from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { CaptchaService } from 'src/captcha/captcha-solver.service';
 import { ProxyConfig } from 'src/types/proxy.types';
 import { browserOpenTimes } from 'src/utils/puppeteer-logging';
+
+// Включаем StealthPlugin для обхода детекции ботов
+puppeteer.use(StealthPlugin());
 
 type ProxyProvider = {
   name: string;
@@ -25,18 +30,18 @@ const parseSupportedGeos = (): Set<string> => {
 const SUPPORTED_GEOS = parseSupportedGeos();
 
 const PROVIDERS: ProxyProvider[] = [
-  {
-    name: 'PacketStream',
-    host: process.env.PS_PROXY_HOST ?? '',
-    port: Number(process.env.PS_PROXY_PORT ?? ''),
-    build: (geo) => {
-      const tpl = process.env.PS_PROXY_PASSWORD_TEMPLATE ?? '';
-      return {
-        username: process.env.PS_PROXY_USERNAME ?? '',
-        password: tpl.replace('{GEO}', String(geo)),
-      };
-    },
-  },
+  // {
+  //   name: 'PacketStream',
+  //   host: process.env.PS_PROXY_HOST ?? '',
+  //   port: Number(process.env.PS_PROXY_PORT ?? ''),
+  //   build: (geo) => {
+  //     const tpl = process.env.PS_PROXY_PASSWORD_TEMPLATE ?? '';
+  //     return {
+  //       username: process.env.PS_PROXY_USERNAME ?? '',
+  //       password: tpl.replace('{GEO}', String(geo)),
+  //     };
+  //   },
+  // },
   {
     name: 'PIA',
     host: process.env.PIA_PROXY_HOST ?? '',
@@ -106,13 +111,16 @@ export class PuppeteerService implements OnModuleDestroy {
     }
   
     await page.setUserAgent(userAgent);
-    await page.setExtraHTTPHeaders(HEADERS(locale, userAgent, linkurl));
+    // УБРАЛИ setExtraHTTPHeaders - может вызывать несоответствие с UA
+    // await page.setExtraHTTPHeaders(HEADERS(locale, userAgent, linkurl));
     await page.emulateTimezone(timeZone);
   
-    const localeRaw = getBrowserSpoofScript(locale, timeZone);
-    const localeScript = this.sanitizeModuleScript(localeRaw);
-    await page.evaluateOnNewDocument(`(()=>{${localeScript}})();`);
+    // ОТКЛЮЧИЛИ кастомный spoof - StealthPlugin делает это лучше
+    // const localeRaw = getBrowserSpoofScript(locale, timeZone);
+    // const localeScript = this.sanitizeModuleScript(localeRaw);
+    // await page.evaluateOnNewDocument(`(()=>{${localeScript}})();`);
 
+    // Только turnstile inject - как в рабочем скрипте
     const turnstileScript = this.captchaService.getTurnstileInjectScript();
     await page.evaluateOnNewDocument(turnstileScript);
   
@@ -130,8 +138,9 @@ export class PuppeteerService implements OnModuleDestroy {
       userAgent,
     });
   
-    await page.setRequestInterception(true);
-    page.on('request', (req) => req.continue());
+    // УБРАЛИ request interception - может детектиться
+    // await page.setRequestInterception(true);
+    // page.on('request', (req) => req.continue());
   
     return { browser, page };
   }
@@ -149,13 +158,20 @@ export class PuppeteerService implements OnModuleDestroy {
   
     try {
       const proxyArg = `--proxy-server=http://${proxy.host}:${proxy.port}`;
-  
-      const browser = await launch({
+
+      // Минимальные аргументы как в рабочем скрипте
+      const minimalArgs = [
+        proxyArg,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled',
+        '--window-size=1280,900',
+        `--lang=${locale}`,
+      ];
+
+      const browser = await puppeteer.launch({
         headless: IS_PROD_ENV,
-        dumpio: true,
-        pipe: true,
-        args: BROWSER_ARGUMENTS(proxyArg, locale, timeZone),
-        slowMo: 0,
+        args: minimalArgs,
         defaultViewport: null,
       });
   

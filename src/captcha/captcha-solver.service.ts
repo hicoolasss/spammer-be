@@ -154,7 +154,7 @@ export class CaptchaService {
 
     try {
       this.logger.info(`${taskPrefix} Waiting for captcha interception (20s)...`);
-      await this.sleep(9999999);
+      await this.sleep(20000);
 
       if (!captchaSolved) {
         this.logger.info(`${taskPrefix} No params intercepted, reloading page...`);
