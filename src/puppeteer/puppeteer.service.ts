@@ -4,15 +4,13 @@ import { BROWSER_ARGUMENTS, IS_PROD_ENV, LogWrapper } from '@utils';
 import { LOCALE_SETTINGS } from '@utils';
 import { getBrowserSpoofScript, getRandomItem, HEADERS, MOBILE_VIEWPORTS } from '@utils';
 import * as dns from 'dns';
-import { Browser, Page } from 'puppeteer';
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { Browser, launch, Page } from 'puppeteer';
 import { CaptchaService } from 'src/captcha/captcha-solver.service';
 import { ProxyConfig } from 'src/types/proxy.types';
+import { CAPTCHA_PROXY_USERNAMES, isSpamspamUser } from 'src/utils/captcha-proxies';
 import { browserOpenTimes } from 'src/utils/puppeteer-logging';
 
-// Включаем StealthPlugin для обхода детекции ботов
-puppeteer.use(StealthPlugin());
+type ProxyMode = 'normal' | 'captcha';
 
 type ProxyProvider = {
   name: string;
@@ -30,18 +28,6 @@ const parseSupportedGeos = (): Set<string> => {
 const SUPPORTED_GEOS = parseSupportedGeos();
 
 const PROVIDERS: ProxyProvider[] = [
-  // {
-  //   name: 'PacketStream',
-  //   host: process.env.PS_PROXY_HOST ?? '',
-  //   port: Number(process.env.PS_PROXY_PORT ?? ''),
-  //   build: (geo) => {
-  //     const tpl = process.env.PS_PROXY_PASSWORD_TEMPLATE ?? '';
-  //     return {
-  //       username: process.env.PS_PROXY_USERNAME ?? '',
-  //       password: tpl.replace('{GEO}', String(geo)),
-  //     };
-  //   },
-  // },
   {
     name: 'PIA',
     host: process.env.PIA_PROXY_HOST ?? '',
@@ -54,7 +40,30 @@ const PROVIDERS: ProxyProvider[] = [
       };
     },
   },
+  {
+    name: 'PacketStream',
+    host: process.env.PS_PROXY_HOST ?? '',
+    port: Number(process.env.PS_PROXY_PORT ?? ''),
+    build: (geo) => {
+      const tpl = process.env.PS_PROXY_PASSWORD_TEMPLATE ?? '';
+      return {
+        username: process.env.PS_PROXY_USERNAME ?? '',
+        password: tpl.replace('{GEO}', String(geo)),
+      };
+    },
+  },
 ];
+
+const CAPTCHA_PROXY_HOST = process.env.CAPTCHA_PROXY_HOST ?? '';
+const CAPTCHA_PROXY_PORT = Number(process.env.CAPTCHA_PROXY_PORT ?? '');
+const CAPTCHA_PROXY_PASSWORD_DEFAULT = process.env.CAPTCHA_PROXY_PASSWORD_DEFAULT ?? '';
+const CAPTCHA_PROXY_PASSWORD_SPAMSPAM = process.env.CAPTCHA_PROXY_PASSWORD_SPAMSPAM ?? '';
+
+const getCaptchaPassword = (username: string) => {
+  return isSpamspamUser(username)
+    ? CAPTCHA_PROXY_PASSWORD_SPAMSPAM
+    : CAPTCHA_PROXY_PASSWORD_DEFAULT;
+};
 
 @Injectable()
 export class PuppeteerService implements OnModuleDestroy {
@@ -91,14 +100,22 @@ export class PuppeteerService implements OnModuleDestroy {
     taskId: string,
     proxyGeo: CountryCode,
     userAgent: string,
-    linkurl?: string,
+    options?: {
+      linkurl?: string;
+      isCaptcha?: boolean;
+    },
   ): Promise<{ browser: Browser; page: Page }> {
     const localeSettings = LOCALE_SETTINGS[proxyGeo] || LOCALE_SETTINGS.ALL;
     const { locale, timeZone } = localeSettings;
   
-    const proxy = this.getNextProxy(taskId, proxyGeo);
+    const isCaptcha = options?.isCaptcha === true;
+    const proxyMode: ProxyMode = isCaptcha ? 'captcha' : 'normal';
+
+    const proxy = this.getNextProxy(taskId, proxyGeo, proxyMode);
   
-    const browser = await this.createBrowser(locale, timeZone, proxy);
+    const browser = await this.createBrowser(locale, timeZone, proxy, {
+      isCaptcha,
+    });
     const context = await browser.createBrowserContext();
     const page = await context.newPage();
   
@@ -111,18 +128,39 @@ export class PuppeteerService implements OnModuleDestroy {
     }
   
     await page.setUserAgent(userAgent);
-    // УБРАЛИ setExtraHTTPHeaders - может вызывать несоответствие с UA
-    // await page.setExtraHTTPHeaders(HEADERS(locale, userAgent, linkurl));
+
+    if (!isCaptcha) {
+      await page.setExtraHTTPHeaders(
+        HEADERS(locale, userAgent, options?.linkurl),
+      );
+    
+      this.logger.debug?.(
+        `[PuppeteerService] Extra headers applied (isCaptcha=false)`,
+      );
+    } else {
+      this.logger.info(
+        `[PuppeteerService] Skipping extra headers (isCaptcha=true)`,
+      );
+    }
+    
     await page.emulateTimezone(timeZone);
   
-    // ОТКЛЮЧИЛИ кастомный spoof - StealthPlugin делает это лучше
-    // const localeRaw = getBrowserSpoofScript(locale, timeZone);
-    // const localeScript = this.sanitizeModuleScript(localeRaw);
-    // await page.evaluateOnNewDocument(`(()=>{${localeScript}})();`);
+    const localeRaw = getBrowserSpoofScript(locale, timeZone);
+    const localeScript = this.sanitizeModuleScript(localeRaw);
+    await page.evaluateOnNewDocument(`(()=>{${localeScript}})();`);
 
-    // Только turnstile inject - как в рабочем скрипте
-    const turnstileScript = this.captchaService.getTurnstileInjectScript();
-    await page.evaluateOnNewDocument(turnstileScript);
+    if (isCaptcha) {
+      const turnstileScript = this.captchaService.getTurnstileInjectScript();
+      await page.evaluateOnNewDocument(turnstileScript);
+    
+      this.logger.info(
+        `[PuppeteerService] Turnstile inject script enabled (isCaptcha=true)`,
+      );
+    } else {
+      this.logger.debug?.(
+        `[PuppeteerService] Turnstile inject skipped (isCaptcha=false)`,
+      );
+    }
   
     const baseViewport = getRandomItem(MOBILE_VIEWPORTS);
     const isLandscape = baseViewport.screenSize > 7 && Math.random() < 0.5;
@@ -138,9 +176,8 @@ export class PuppeteerService implements OnModuleDestroy {
       userAgent,
     });
   
-    // УБРАЛИ request interception - может детектиться
-    // await page.setRequestInterception(true);
-    // page.on('request', (req) => req.continue());
+    await page.setRequestInterception(true);
+    page.on('request', (req) => req.continue());
   
     return { browser, page };
   }
@@ -149,6 +186,9 @@ export class PuppeteerService implements OnModuleDestroy {
     locale: string,
     timeZone: string,
     proxy: ProxyConfig,
+    options?: {
+      isCaptcha?: boolean;
+    },
   ): Promise<Browser> {
     dns.setServers(['1.1.1.1']);
   
@@ -159,19 +199,14 @@ export class PuppeteerService implements OnModuleDestroy {
     try {
       const proxyArg = `--proxy-server=http://${proxy.host}:${proxy.port}`;
 
-      // Минимальные аргументы как в рабочем скрипте
-      const minimalArgs = [
-        proxyArg,
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled',
-        '--window-size=1280,900',
-        `--lang=${locale}`,
-      ];
-
-      const browser = await puppeteer.launch({
+      const browser = await launch({
         headless: IS_PROD_ENV,
-        args: minimalArgs,
+        dumpio: true,
+        pipe: true,
+        args: BROWSER_ARGUMENTS(proxyArg, locale, timeZone, {
+          disableWebSecurity: !(options?.isCaptcha === true),
+        }),
+        slowMo: 0,
         defaultViewport: null,
       });
   
@@ -211,37 +246,76 @@ export class PuppeteerService implements OnModuleDestroy {
     return geo;
   }
 
-  private getNextProxy(taskId: string, geo: CountryCode): ProxyConfig {
-    if (PROVIDERS.length === 0) throw new Error('No proxy providers configured');
+  private cursorKey(taskId: string, mode: ProxyMode) {
+    return `${taskId}:${mode}`;
+  }
 
+  private getNextProxy(taskId: string, geo: CountryCode, mode: ProxyMode): ProxyConfig {
     geo = this.normalizeGeo(geo);
 
-    const idx = this.taskProxyIndex.get(taskId) ?? 0;
-    const provider = PROVIDERS[idx % PROVIDERS.length];
-    this.taskProxyIndex.set(taskId, idx + 1);
+    const key = this.cursorKey(taskId, mode);
+    const idx = this.taskProxyIndex.get(key) ?? 0;
 
-    const { username, password } = provider.build(geo);
+    if (mode === 'normal') {
+      if (PROVIDERS.length === 0) throw new Error('No proxy providers configured');
+
+      const provider = PROVIDERS[idx % PROVIDERS.length];
+      this.taskProxyIndex.set(key, idx + 1);
+
+      const { username, password } = provider.build(geo);
+
+      const proxy: ProxyConfig = {
+        name: `${provider.name}-${geo}`,
+        host: provider.host,
+        port: provider.port,
+        username,
+        password,
+      };
+
+      if (!proxy.host || !Number.isFinite(proxy.port) || !proxy.username || !proxy.password) {
+        throw new Error(`Proxy "${proxy.name}" is not fully configured (check env templates)`);
+      }
+
+      this.logger.debug(`[Proxy] Task ${taskId}: mode=normal -> "${proxy.name}" (${proxy.host}:${proxy.port})`);
+      return proxy;
+    }
+
+    const g = String(geo).toUpperCase();
+    const list = CAPTCHA_PROXY_USERNAMES[g] ?? CAPTCHA_PROXY_USERNAMES['CZ'];
+    if (!list?.length) {
+      throw new Error(`No captcha usernames configured for geo=${g}`);
+    }
+
+    const username = list[idx % list.length];
+    const password = getCaptchaPassword(username);
+
+    if (isSpamspamUser(username) && !CAPTCHA_PROXY_PASSWORD_SPAMSPAM) {
+      throw new Error('CAPTCHA_PROXY_PASSWORD_SPAMSPAM is empty (required for spamspam users)');
+    }
+    if (!isSpamspamUser(username) && !CAPTCHA_PROXY_PASSWORD_DEFAULT) {
+      throw new Error('CAPTCHA_PROXY_PASSWORD_DEFAULT is empty');
+    }
+
+    this.taskProxyIndex.set(key, idx + 1);
 
     const proxy: ProxyConfig = {
-      name: `${provider.name}-${geo}`,
-      host: provider.host,
-      port: provider.port,
+      name: `CH-${g}-${idx % list.length}`,
+      host: CAPTCHA_PROXY_HOST,
+      port: CAPTCHA_PROXY_PORT,
       username,
       password,
     };
 
     if (!proxy.host || !Number.isFinite(proxy.port) || !proxy.username || !proxy.password) {
-      throw new Error(`Proxy "${proxy.name}" is not fully configured (check env templates)`);
+      throw new Error(`Captcha proxy is not fully configured (check env vars/passwords)`);
     }
 
-    this.logger.debug(
-      `[PuppeteerService] Task ${taskId}: using proxy "${proxy.name}" (${proxy.host}:${proxy.port})`,
-    );
-
+    this.logger.debug(`[Proxy] Task ${taskId}: mode=captcha -> "${proxy.name}" (${proxy.host}:${proxy.port})`);
     return proxy;
   }
 
   clearTaskProxyCursor(taskId: string) {
-    this.taskProxyIndex.delete(taskId);
+    this.taskProxyIndex.delete(this.cursorKey(taskId, 'normal'));
+    this.taskProxyIndex.delete(this.cursorKey(taskId, 'captcha'));
   }
 }

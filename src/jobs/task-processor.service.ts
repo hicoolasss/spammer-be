@@ -565,7 +565,10 @@ export class TaskProcessorService {
         taskId,
         geo as CountryCode,
         userAgent,
-        finalUrl,
+        {
+          linkurl: finalUrl,
+          isCaptcha: task.isCaptcha === true,
+        },
       );
   
       browser = isolated.browser;
@@ -581,21 +584,33 @@ export class TaskProcessorService {
         return;
       }
 
-      // Check and handle Cloudflare Turnstile challenge page
+      const shouldSolveCaptcha = task.isCaptcha === true;
+
       const isChallenge = await this.captchaService.isChallengePage(finalPage);
-      if (isChallenge) {
+
+      if (isChallenge && !shouldSolveCaptcha) {
+        this.logger.warn(
+          `[TASK_${taskId}] Cloudflare challenge detected but isCaptcha=false — stopping task early`,
+        );
+      
+        finalRedirectUrl = finalPage.url();
+        return;
+      }
+      
+      if (isChallenge && shouldSolveCaptcha) {
         this.logger.info(`[TASK_${taskId}] Detected Cloudflare challenge page, solving...`);
         const challengeResult = await this.captchaService.solveTurnstileChallenge(
           finalPage,
           taskId,
           finalUrl,
         );
-        
+      
         if (!challengeResult.success) {
           this.logger.error(`[TASK_${taskId}] Failed to solve challenge: ${challengeResult.error}`);
+          finalRedirectUrl = finalPage.url();
           return;
         }
-        
+      
         this.logger.info(`[TASK_${taskId}] Challenge solved successfully`);
         await this.sleep(3000);
       }
@@ -617,7 +632,7 @@ export class TaskProcessorService {
       await this.takeScreenshot(finalPage, taskId, 'before-form-fill');
   
       afterSubmitUrl = await this.safeExecute(finalPage, () =>
-        this.fillFormWithData(finalPage, leadData, taskId, task.isQuiz, true, geo),
+        this.fillFormWithData(finalPage, leadData, taskId, task.isQuiz, task.isCaptcha, true, geo),
       );
   
       if (finalPage && !finalPage.isClosed()) {
@@ -1192,6 +1207,7 @@ export class TaskProcessorService {
     leadData: LeadData,
     taskId?: string,
     isQuiz?: boolean,
+    isCaptcha?: boolean,
     humanize = true,
     geo?: string,
   ): Promise<string | null> {
@@ -1597,12 +1613,20 @@ export class TaskProcessorService {
   
         await this.takeScreenshot(page, taskId, 'after-form-fill');
 
-        // Check and solve form captcha (Turnstile) before submission
-        const formCaptchaSolved = await this.captchaService.checkAndSolveFormCaptcha(page, taskId || 'unknown');
-        if (!formCaptchaSolved) {
-          this.logger.warn(`${taskPrefix} Form captcha solving failed, continuing with submission anyway...`);
+        if (isCaptcha) {
+          const formCaptchaSolved = await this.captchaService.checkAndSolveFormCaptcha(
+            page,
+            taskId || 'unknown',
+          );
+        
+          if (!formCaptchaSolved) {
+            this.logger.warn(`${taskPrefix} Form captcha solving failed, continuing with submission anyway...`);
+          }
+        
+          await sleep(1000);
+        } else {
+          this.logger.debug?.(`${taskPrefix} isCaptcha=false: skipping form captcha solving`);
         }
-        await sleep(1000);
   
         const submitResult = await page.evaluate((formIndex: number, fast: boolean) => {
           const forms = Array.from(document.querySelectorAll('form'));

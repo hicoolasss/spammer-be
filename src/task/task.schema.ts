@@ -36,6 +36,9 @@ export class Task {
   @Prop({ type: Boolean, default: false })
   isQuiz: boolean;
 
+  @Prop({ type: Boolean, default: false })
+  isCaptcha: boolean;
+
   @Prop({
     type: {
       total: { type: Number, default: 0 },
