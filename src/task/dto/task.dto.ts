@@ -14,6 +14,7 @@ export interface TaskDto {
   lastRunAt?: string;
   shouldClickRedirectLink?: boolean;
   isQuiz?: boolean;
+  isCaptcha?: boolean;
 }
 
 export interface TaskStatisticsDto {
@@ -32,6 +33,7 @@ export interface CreateTaskDto {
   applicationsNumber: number;
   shouldClickRedirectLink?: boolean;
   isQuiz?: boolean;
+  isCaptcha?: boolean;
 }
 
 export interface UpdateTaskDto {
@@ -42,6 +44,7 @@ export interface UpdateTaskDto {
   applicationsNumber?: number;
   shouldClickRedirectLink?: boolean;
   isQuiz?: boolean;
+  isCaptcha?: boolean;
 }
 
 export interface TaskListResponseDto {
