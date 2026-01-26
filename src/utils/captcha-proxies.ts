@@ -1,0 +1,58 @@
+export type CaptchaGeo = 'CZ' | 'SK' | 'RO';
+
+export const CAPTCHA_PROXY_USERNAMES: Record<CaptchaGeo, string[]> = {
+  CZ: [
+    'user-15spaspa_Q6vqU-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-14spaspa_K0vpE-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-13spaspa_Q0rjW-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-12spaspa_X4deP-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-11spaspa_M1tbF-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-10spaspa_W4vpH-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-9spaspa_H6azU-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-8spaspa_W1lqQ-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-7spaspa_Q5liT-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-6spaspa_U3ivW-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-5spaspa_C4fmO-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-4spaspa_S0dwD-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-3spaspa_Y0hjK-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-2spaspa_S3cyG-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+    'user-spamspam_M8blL-region-cz-sessid-czeznxk6smq41w488-sesstime-3',
+  ],
+  SK: [
+    'user-spamspam_M8blL-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-2spaspa_S3cyG-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-3spaspa_Y0hjK-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-4spaspa_S0dwD-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-5spaspa_C4fmO-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-6spaspa_U3ivW-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-7spaspa_Q5liT-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-8spaspa_W1lqQ-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-9spaspa_H6azU-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-10spaspa_W4vpH-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-11spaspa_M1tbF-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-12spaspa_X4deP-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-13spaspa_Q0rjW-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-14spaspa_K0vpE-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+    'user-15spaspa_Q6vqU-region-sk-sessid-skeznxk6smq41w488-sesstime-3',
+  ],
+  RO: [
+    'user-spamspam_M8blL-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-2spaspa_S3cyG-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-3spaspa_Y0hjK-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-4spaspa_S0dwD-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-5spaspa_C4fmO-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-6spaspa_U3ivW-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-7spaspa_Q5liT-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-8spaspa_W1lqQ-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-9spaspa_H6azU-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-10spaspa_W4vpH-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-11spaspa_M1tbF-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-12spaspa_X4deP-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-13spaspa_Q0rjW-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-14spaspa_K0vpE-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+    'user-15spaspa_Q6vqU-region-ro-sessid-roeznxk6smq41w488-sesstime-3',
+  ],
+};
+
+export const isSpamspamUser = (username: string) =>
+  username.startsWith('user-spamspam_M8blL-');

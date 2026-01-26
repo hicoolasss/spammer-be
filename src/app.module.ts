@@ -26,6 +26,7 @@ import { LogWrapper } from '@utils';
 import mongoose from 'mongoose';
 
 import { AppController } from './app.controller';
+import { CaptchaModule } from './captcha/captcha.module';
 import { PuppeteerModule } from './puppeteer/puppeteer.module';
 
 @Module({
@@ -58,6 +59,7 @@ import { PuppeteerModule } from './puppeteer/puppeteer.module';
     PuppeteerModule,
     RedisModule,
     TaskModule,
+    CaptchaModule,
   ],
   controllers: [AppController],
   providers: [CookieService, TokenService, Logger],

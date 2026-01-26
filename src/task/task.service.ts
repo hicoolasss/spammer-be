@@ -37,6 +37,7 @@ export class TaskService {
       },
       shouldClickRedirectLink: dto.shouldClickRedirectLink ?? false,
       isQuiz: dto.isQuiz ?? false,
+      isCaptcha: dto.isCaptcha ?? false,
     });
   
     const task = await this.taskModel
@@ -79,6 +80,7 @@ export class TaskService {
       updatedAt: task!.updatedAt.toISOString(),
       shouldClickRedirectLink: task!.shouldClickRedirectLink,
       isQuiz: task!.isQuiz,
+      isCaptcha: task!.isCaptcha,
     };
   }  
 
@@ -135,6 +137,7 @@ export class TaskService {
           updatedAt: task.updatedAt.toISOString(),
           shouldClickRedirectLink: task.shouldClickRedirectLink,
           isQuiz: task.isQuiz,
+          isCaptcha: task.isCaptcha,
         };
       }),
     );
@@ -232,6 +235,7 @@ export class TaskService {
       updatedAt: populatedTask!.updatedAt.toISOString(),
       shouldClickRedirectLink: populatedTask!.shouldClickRedirectLink,
       isQuiz: populatedTask!.isQuiz,
+      isCaptcha: populatedTask!.isCaptcha,
     };
   }
 

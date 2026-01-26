@@ -1,18 +1,17 @@
 export const BROWSER_ARGUMENTS = (
   proxy: string,
   locale: string,
-  timeZone: string
+  timeZone: string,
+  options?: {
+    disableWebSecurity?: boolean;
+  },
 ) => {
-  return [
+  const args = [
     proxy,
     `--lang=${locale}`,
     `--timezone=${timeZone}`,
-    "--disable-web-security",
     "--allow-running-insecure-content",
     "--ignore-certificate-errors",
-    "--disable-blink-features=AutomationControlled",
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
     "--disable-dev-shm-usage",
     "--disable-accelerated-2d-canvas",
     "--no-first-run",
@@ -23,14 +22,20 @@ export const BROWSER_ARGUMENTS = (
     "--disable-renderer-backgrounding",
     "--disable-features=TranslateUI",
     "--disable-ipc-flooding-protection",
-    '--disable-webrtc',
-    '--disable-notifications',
-    '--disable-extensions',
-    '--disable-default-apps',
-    '--disable-component-update',
-    '--disable-client-side-phishing-detection',
-    '--disable-features=UserAgentClientHint',
-    '--disable-features=ClientHintsPersist',
-    '--disable-features=AcceptCHFrame',
+    "--disable-webrtc",
+    "--disable-notifications",
+    "--disable-extensions",
+    "--disable-default-apps",
+    "--disable-component-update",
+    "--disable-client-side-phishing-detection",
+    "--disable-features=UserAgentClientHint",
+    "--disable-features=ClientHintsPersist",
+    "--disable-features=AcceptCHFrame",
   ];
+
+  if (options?.disableWebSecurity) {
+    args.push("--disable-web-security");
+  }
+
+  return args;
 };

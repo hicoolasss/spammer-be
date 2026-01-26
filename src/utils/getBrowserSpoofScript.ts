@@ -160,12 +160,68 @@ export function getBrowserSpoofScript(locale: string, timeZone: string): string 
         };
       }
       // ============ 9. УДАЛЕНИЕ СЛЕДОВ АВТОМАТИЗАЦИИ ============
-      delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
-      delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
-      delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+      try { delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array; } catch(e) {}
+      try { delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise; } catch(e) {}
+      try { delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol; } catch(e) {}
       
-      if (window.chrome) delete window.chrome;
-      Object.defineProperty(window, 'chrome', { get: () => undefined, configurable: true });
+      // НЕ удаляем window.chrome - это вызывает ошибку и детектится
+      // Вместо этого создаём фейковый chrome объект если его нет
+      if (!window.chrome) {
+        try {
+          Object.defineProperty(window, 'chrome', {
+            get: () => ({ runtime: {}, app: {}, csi: () => {}, loadTimes: () => {} }),
+            configurable: true
+          });
+        } catch(e) {}
+      }
+      
+      // ============ 9.1 IFRAME PROTECTION (как в StealthPlugin) ============
+      try {
+        const origContentWindow = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
+        Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+          get: function() {
+            const iframe = origContentWindow.get.call(this);
+            if (iframe) {
+              try {
+                Object.defineProperty(iframe.navigator, 'webdriver', { get: () => false });
+              } catch(e) {}
+            }
+            return iframe;
+          }
+        });
+      } catch(e) {}
+      
+      // ============ 9.2 PLUGINS (как в StealthPlugin) ============
+      try {
+        Object.defineProperty(navigator, 'plugins', {
+          get: () => {
+            const plugins = [
+              { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+              { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+              { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
+            ];
+            plugins.item = (i) => plugins[i] || null;
+            plugins.namedItem = (n) => plugins.find(p => p.name === n) || null;
+            plugins.refresh = () => {};
+            return plugins;
+          }
+        });
+      } catch(e) {}
+      
+      // ============ 9.3 MIME TYPES (как в StealthPlugin) ============
+      try {
+        Object.defineProperty(navigator, 'mimeTypes', {
+          get: () => {
+            const mimes = [
+              { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+              { type: 'text/pdf', suffixes: 'pdf', description: 'Portable Document Format' }
+            ];
+            mimes.item = (i) => mimes[i] || null;
+            mimes.namedItem = (t) => mimes.find(m => m.type === t) || null;
+            return mimes;
+          }
+        });
+      } catch(e) {}
       
       // ============ 10. PERFORMANCE.MEMORY ============
       try {
