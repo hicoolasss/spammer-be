@@ -31,6 +31,9 @@ export const BROWSER_ARGUMENTS = (
     "--disable-features=UserAgentClientHint",
     "--disable-features=ClientHintsPersist",
     "--disable-features=AcceptCHFrame",
+    "--disable-blink-features=AutomationControlled",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
   ];
 
   if (options?.disableWebSecurity) {
