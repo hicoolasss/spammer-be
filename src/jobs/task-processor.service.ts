@@ -989,118 +989,6 @@ export class TaskProcessorService {
     }
   }
 
-  private getTypingConfig(fieldType: string) {
-    const baseConfig = {
-      baseDelay: 1_000,
-      typingSpeed: 15,
-      typoChance: 0.2,
-      pauseChance: 0.2,
-      pauseDuration: { min: 500, max: 1_000 },
-    };
-
-    switch (fieldType) {
-      case 'email':
-        return {
-          ...baseConfig,
-          icon: '📧',
-          baseDelay: 800,
-          typingSpeed: 14,
-          pauseChance: 0.55,
-          pauseDuration: { min: 800, max: 1_500 },
-        };
-
-      case 'phone':
-        return {
-          ...baseConfig,
-          icon: '📞',
-          baseDelay: 1200,
-          typingSpeed: 23,
-          pauseChance: 0.5,
-          typoChance: 0,
-          pauseDuration: { min: 800, max: 1_500 },
-        };
-
-      case 'name':
-        return {
-          ...baseConfig,
-          icon: '👤',
-          baseDelay: 1500,
-          typingSpeed: 16,
-          pauseChance: 0.35,
-          pauseDuration: { min: 800, max: 1_500 },
-        };
-
-      case 'surname':
-        return {
-          ...baseConfig,
-          icon: '👤',
-          baseDelay: 1_500,
-          typingSpeed: 18,
-          pauseChance: 0.45,
-          pauseDuration: { min: 800, max: 1_500 },
-        };
-
-      default:
-        return {
-          ...baseConfig,
-          icon: '❓',
-          baseDelay: 1_000,
-          typingSpeed: 20,
-        };
-    }
-  }
-
-  private async fillFieldWithTyping(
-    page: Page,
-    selector: string,
-    value: string,
-    config: {
-      icon: string;
-      baseDelay: number;
-      typingSpeed: number;
-      typoChance: number;
-      pauseChance: number;
-      pauseDuration: { min: number; max: number };
-    },
-  ): Promise<void> {
-    await this.prepareField(page, selector);
-
-    for (let i = 0; i < value.length; i++) {
-      const char = value[i];
-
-      await this.addCharacter(page, selector, char);
-
-      const totalDelay = config.baseDelay + Math.random() * config.typingSpeed;
-      await this.sleep(totalDelay);
-
-      if (Math.random() < config.typoChance && i < value.length - 1) {
-        await this.simulateTypo(page, selector);
-      }
-
-      if (Math.random() < config.pauseChance && i < value.length - 1) {
-        const pauseDelay =
-          config.pauseDuration.min +
-          Math.random() * (config.pauseDuration.max - config.pauseDuration.min);
-        await this.sleep(pauseDelay);
-      }
-    }
-  }
-
-  private async prepareField(page: Page, selector: string): Promise<void> {
-    await page.evaluate((selector) => {
-      const element = document.querySelector(selector) as HTMLInputElement;
-      if (element) {
-        element.focus();
-        element.click();
-        element.value = '';
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    }, selector);
-
-    await this.sleep(200 + Math.random() * 300);
-  }
-
   private async addCharacter(page: Page, selector: string, char: string): Promise<void> {
     await page.evaluate(
       (selector, char) => {
@@ -1114,92 +1002,6 @@ export class TaskProcessorService {
       selector,
       char,
     );
-  }
-
-  private async simulateTypo(page: Page, selector: string): Promise<void> {
-    const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26));
-
-    await this.addCharacter(page, selector, typoChar);
-
-    await this.sleep(200 + Math.random() * 300);
-
-    await page.evaluate((selector) => {
-      const element = document.querySelector(selector) as HTMLInputElement;
-      if (element) {
-        element.value = element.value.slice(0, -1);
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    }, selector);
-
-    await this.sleep(150 + Math.random() * 200);
-  }
-
-  private async simulateMouseMovement(
-    page: Page,
-    selector: string,
-    taskId?: string,
-  ): Promise<void> {
-    const taskPrefix = taskId ? `[TASK_${taskId}]` : '[TASK_UNKNOWN]';
-
-    if (!page.mouse) return;
-
-    try {
-      const rect = await page.evaluate((selector) => {
-        const el = document.querySelector(selector) as HTMLElement;
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-      }, selector);
-
-      if (rect) {
-        const steps = 10 + Math.floor(Math.random() * 10);
-        await page.mouse.move(rect.x, rect.y, { steps });
-
-        await this.sleep(100 + Math.random() * 300);
-      }
-    } catch (error) {
-      this.logger.debug(`${taskPrefix} Failed to move mouse to field: ${error.message}`);
-    }
-  }
-
-  private async simulateFieldTransition(page: Page): Promise<void> {
-    const basePause = 800 + Math.random() * 1200;
-    const readingPause = Math.random() < 0.2 ? 500 + Math.random() * 1_000 : 0;
-    const quickPause = Math.random() < 0.1 ? Math.random() * 300 : 0;
-    const totalPause = basePause + readingPause + quickPause;
-
-    if (Math.random() < 0.1) {
-      await page.evaluate(() => {
-        const all = Array.from(document.querySelectorAll('div, p, span, section, article'));
-        const candidates = all.filter((el) => {
-          const style = window.getComputedStyle(el);
-          return (
-            (el as HTMLElement).offsetParent !== null &&
-            style.display !== 'none' &&
-            style.visibility !== 'hidden' &&
-            style.opacity !== '0' &&
-            el.clientHeight > 10 &&
-            el.clientWidth > 10
-          );
-        });
-        if (candidates.length > 0) {
-          const el = candidates[Math.floor(Math.random() * candidates.length)] as HTMLElement;
-          el.click();
-        }
-      });
-
-      if (page.mouse && page.evaluate) {
-        const pos = await page.evaluate(
-          () => (window as any).__lastRandomClick || { x: 100, y: 100 },
-        );
-        await page.mouse.move(pos.x, pos.y, { steps: 10 });
-      }
-
-      await this.sleep(400 + Math.random() * 600);
-    }
-
-    await this.sleep(totalPause);
   }
 
   private async fillFormWithData(
@@ -1363,6 +1165,8 @@ export class TaskProcessorService {
             this.logger.warn(`${taskPrefix} No value for field type: ${field.type}, skipping`);
             continue;
           }
+
+          const allowTypos = field.type !== 'phone';
   
           try {
             const fieldExists = await page.evaluate((selector: string, fast: boolean) => {
@@ -1459,7 +1263,7 @@ export class TaskProcessorService {
                 const totalDelay = 300 + Math.random() * 900;
                 await sleep(totalDelay);
   
-                if (Math.random() < 0.05 && i < value.length - 1) {
+                if (allowTypos && Math.random() < 0.05 && i < value.length - 1) {
                   const typoChar = String.fromCharCode(97 + Math.floor(Math.random() * 26));
                   this.logger.debug(`${taskPrefix} ⌨️ Made typo: "${typoChar}", correcting...`);
   
