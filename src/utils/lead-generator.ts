@@ -21,8 +21,9 @@ export const LAST_NAMES_CZ = [
 ];
 
 export const EMAIL_DOMAINS_CZ = [
-  'seznam.cz', 'centrum.cz', 'email.cz', 'gmail.com',
-  'outlook.com', 'volny.cz', 'post.cz'
+  'seznam.cz', 'email.cz', 'post.cz', 'centrum.cz', 'atlas.cz',
+  'volny.cz', 'tiscali.cz',
+  'gmail.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'yahoo.com',
 ];
 
 export const PHONE_PREFIXES_CZ = [
@@ -47,15 +48,14 @@ export const LAST_NAMES_SK = [
 ];
 
 export const EMAIL_DOMAINS_SK = [
-  'gmail.com', 'azet.sk', 'zoznam.sk', 'centrum.sk',
-  'post.sk', 'outlook.com', 'hotmail.com'
+  'azet.sk', 'zoznam.sk', 'centrum.sk', 'post.sk',
+  'gmail.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'yahoo.com',
 ];
 
 export const PHONE_PREFIXES_SK = [
-  '0901', '0902', '0903', '0904', '0905', '0906', '0907', '0908', '0909',
-  '0910', '0911', '0912', '0913', '0914', '0915', '0916', '0917', '0918',
-  '0919', '0940', '0941', '0942', '0943', '0944', '0945', '0946', '0947',
-  '0948', '0949'
+  '901','902','903','904','905','906','907','908','909',
+  '910','911','912','913','914','915','916','917','918','919',
+  '940','941','942','943','944','945','946','947','948','949'
 ];
 
 export const FIRST_NAMES_DE = [
@@ -74,14 +74,14 @@ export const LAST_NAMES_DE = [
 ];
 
 export const EMAIL_DOMAINS_DE = [
-  'gmail.com', 'web.de', 'gmx.de', 'outlook.de',
-  'hotmail.de', 't-online.de', 'yahoo.de'
+  'web.de', 'gmx.de', 't-online.de', 'freenet.de', 'arcor.de',
+  'gmail.com', 'outlook.de', 'hotmail.de', 'icloud.com', 'yahoo.de',
 ];
 
 export const PHONE_PREFIXES_DE = [
-  '0151', '0152', '0155', '0156', '0157', '0159',
-  '0160', '0162', '0163',
-  '0170', '0171', '0172', '0173', '0174', '0175', '0176', '0177', '0178', '0179'
+  '151','152','155','156','157','159',
+  '160','162','163',
+  '170','171','172','173','174','175','176','177','178','179'
 ];
 
 export const FIRST_NAMES_RO = [
@@ -105,12 +105,12 @@ export const EMAIL_DOMAINS_RO = [
 ];
 
 export const PHONE_PREFIXES_RO = [
-  '0720', '0721', '0722', '0723', '0724',
-  '0730', '0731', '0732', '0733', '0734',
-  '0740', '0741', '0742', '0743', '0744',
-  '0750', '0751', '0752', '0753', '0754',
-  '0760', '0761', '0762', '0763', '0764',
-  '0770', '0771', '0772', '0773', '0774'
+  '720','721','722','723','724',
+  '730','731','732','733','734',
+  '740','741','742','743','744',
+  '750','751','752','753','754',
+  '760','761','762','763','764',
+  '770','771','772','773','774'
 ];
 
 function getRandomElement<T>(arr: T[]): T {
@@ -134,6 +134,10 @@ function generateRandomEmail(
   const num3 = Math.floor(Math.random() * 1000);
   const num4 = Math.floor(Math.random() * 10000);
   const year = Math.floor(Math.random() * 30) + 1990;
+  const yy = year % 100;
+
+  const f0 = cleanFirstName[0] ?? '';
+  const l0 = cleanLastName[0] ?? '';
 
   const formats = [
     `${cleanFirstName}.${cleanLastName}@${domain}`,
@@ -149,12 +153,24 @@ function generateRandomEmail(
     `${cleanLastName}${num3}@${domain}`,
     `${cleanFirstName}.${cleanLastName}${year}@${domain}`,
     `${cleanFirstName}${year}@${domain}`,
-    `${cleanFirstName[0]}.${cleanLastName}@${domain}`,
-    `${cleanFirstName[0]}${cleanLastName}@${domain}`,
-    `${cleanFirstName[0]}${cleanLastName}${num3}@${domain}`,
-    `${cleanLastName}${cleanFirstName[0]}@${domain}`,
-    `${cleanFirstName[0]}${cleanLastName[0]}${num4}@${domain}`,
+    `${f0}.${cleanLastName}@${domain}`,
+    `${f0}${cleanLastName}@${domain}`,
+    `${f0}${cleanLastName}${num3}@${domain}`,
+    `${cleanLastName}${f0}@${domain}`,
+    `${f0}${l0}${num4}@${domain}`,
     `${cleanLastName}${cleanFirstName}${num2}@${domain}`,
+    `${cleanFirstName}-${cleanLastName}@${domain}`,
+    `${cleanLastName}-${cleanFirstName}@${domain}`,
+    `${f0}-${cleanLastName}@${domain}`,
+    `${f0}_${cleanLastName}${num2}@${domain}`,
+    `${f0}.${cleanLastName}${num2}@${domain}`,
+    `${cleanFirstName}_${cleanLastName}${yy}@${domain}`,
+    `${cleanFirstName}${cleanLastName}${year}@${domain}`,
+    `${cleanLastName}.${f0}${num2}@${domain}`,
+    `${cleanFirstName}.${l0}${num2}@${domain}`,
+    `${f0}${l0}.${cleanLastName}${num2}@${domain}`,
+    `${cleanLastName}${f0}${yy}@${domain}`,
+    `${f0}.${cleanLastName}${yy}@${domain}`,
   ];
 
   return getRandomElement(formats);
@@ -170,32 +186,25 @@ function generateRandomPhoneCz(): string {
 
 function generateRandomPhoneSk(): string {
   const prefix = getRandomElement(PHONE_PREFIXES_SK);
-  const normalizedPrefix = prefix.slice(1);
-
   const part1 = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
   const part2 = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
 
-  return `${normalizedPrefix}${part1}${part2}`;
+  return `${prefix}${part1}${part2}`;
 }
 
 function generateRandomPhoneDe(): string {
   const prefix = getRandomElement(PHONE_PREFIXES_DE);
-  const normalizedPrefix = prefix.slice(1);
-
   const part1 = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
   const part2 = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-
-  return `${normalizedPrefix}${part1}${part2}`;
+  return `${prefix}${part1}${part2}`;
 }
 
 function generateRandomPhoneRo(): string {
   const prefix = getRandomElement(PHONE_PREFIXES_RO);
-  const normalizedPrefix = prefix.slice(1);
-
   const part1 = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
   const part2 = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
 
-  return `${normalizedPrefix}${part1}${part2}`;
+  return `${prefix}${part1}${part2}`;
 }
 
 export function generateLeadForGeo(geo: string): LeadData {
