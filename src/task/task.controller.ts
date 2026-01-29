@@ -1,4 +1,5 @@
 import { CurrentUser } from '@_decorators';
+import { TaskStatus } from '@enums';
 import {
   Body,
   Controller,
@@ -6,6 +7,7 @@ import {
   Get,
   HttpStatus,
   Param,
+  ParseEnumPipe,
   ParseIntPipe,
   Patch,
   Post,
@@ -43,7 +45,9 @@ export class TaskController {
     limit: number = 10,
     @Query('searchQuery') searchQuery?: string,
     @Query('selectedGeo') selectedGeo?: string,
+    @Query('status', new ParseEnumPipe(TaskStatus, { optional: true, errorHttpStatusCode: HttpStatus.BAD_REQUEST }))
+    status?: TaskStatus,
   ): Promise<TaskListResponseDto> {
-    return await this.taskService.findAllByUser(user._id, skip, limit, searchQuery, selectedGeo);
+    return await this.taskService.findAllByUser(user._id, skip, limit, searchQuery, selectedGeo, status,);
   }
 }
