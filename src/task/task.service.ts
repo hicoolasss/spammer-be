@@ -90,6 +90,7 @@ export class TaskService {
     limit: number,
     searchQuery: string,
     selectedGeo: string,
+    status?: TaskStatus,
   ): Promise<TaskListResponseDto> {
     const filter: FilterQuery<TaskDocument> = { createdBy: userId };
 
@@ -100,6 +101,10 @@ export class TaskService {
 
     if (selectedGeo) {
       filter.geo = selectedGeo;
+    }
+
+    if (status) {
+      filter.status = status;
     }
 
     const total = await this.taskModel.countDocuments(filter).exec();
