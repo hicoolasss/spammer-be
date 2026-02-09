@@ -29,18 +29,6 @@ const SUPPORTED_GEOS = parseSupportedGeos();
 
 const PROVIDERS: ProxyProvider[] = [
   {
-    name: 'PIA',
-    host: process.env.PIA_PROXY_HOST ?? '',
-    port: Number(process.env.PIA_PROXY_PORT ?? ''),
-    build: (geo) => {
-      const tpl = process.env.PIA_PROXY_USERNAME_TEMPLATE ?? '';
-      return {
-        username: tpl.replace('{geo}', String(geo).toLowerCase()),
-        password: process.env.PIA_PROXY_PASSWORD ?? '',
-      };
-    },
-  },
-  {
     name: 'PacketStream',
     host: process.env.PS_PROXY_HOST ?? '',
     port: Number(process.env.PS_PROXY_PORT ?? ''),
@@ -49,6 +37,18 @@ const PROVIDERS: ProxyProvider[] = [
       return {
         username: process.env.PS_PROXY_USERNAME ?? '',
         password: tpl.replace('{GEO}', String(geo)),
+      };
+    },
+  },
+  {
+    name: 'PIA',
+    host: process.env.PIA_PROXY_HOST ?? '',
+    port: Number(process.env.PIA_PROXY_PORT ?? ''),
+    build: (geo) => {
+      const tpl = process.env.PIA_PROXY_USERNAME_TEMPLATE ?? '';
+      return {
+        username: tpl.replace('{geo}', String(geo).toLowerCase()),
+        password: process.env.PIA_PROXY_PASSWORD ?? '',
       };
     },
   },
